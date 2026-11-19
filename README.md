@@ -111,6 +111,18 @@ y los goles de cada equipo salen de `Poisson(λ)`. Los minutos de los goles y de
 
 Cada usuario tiene hasta 3 partidas en la tabla `Save` (`userId` + `slot` únicos). El juego guarda después de cada acción, con un solo guardado en vuelo a la vez: los cambios que llegan mientras tanto se juntan en uno con el estado más reciente. Los guardados llevan `version` y pasan por `parseSave` (Zod + migraciones) al cargar.
 
-## Pendiente respecto del prototipo
+## Funcionalidades
 
-Copa, Copa Internacional, Copa de Campeones, playoffs, mercado de pases, finanzas, estadio, empleados, juveniles, entrenamiento, contratos y renovaciones, tarjetas y suspensiones, lesiones y carrera del DT.
+Paridad con el prototipo original (`futsal-manager.html`):
+
+- **Competiciones:** liga de 3 divisiones con ascenso directo, playoffs y descensos del original; Copa nacional, Copa Internacional (con invitados) y Copa de Campeones, intercaladas en el calendario.
+- **Partido:** motor Poisson único, partido en vivo por tiempos con cambio táctico en el entretiempo y tanda de penales penal a penal.
+- **Plantel:** lesiones, tarjetas y suspensiones, fatiga, forma, contratos (renovar, despedir, vencimientos), retiros, números de camiseta y pateadores de penales.
+- **Mercado:** pretemporada, ventanas de fichajes, compra, ofertas recibidas, cartera, mercado de la computadora y ficha del rival con historial y clásicos.
+- **Club:** sueldos, entradas y asistencia, sponsors, deuda con bloqueo, estadio y staff.
+- **Cantera y entrenamiento:** juveniles con promoción a los 19, entrenamiento individual y centros de academia y entrenamiento.
+- **DT:** carrera, presión de la directiva, despido, ofertas de trabajo, historial del club y palmarés.
+
+## Pendiente
+
+- Balance de la economía a largo plazo: la mediana de presupuestos de la computadora sigue creciendo después de la 2.ª temporada, y el nivel de las divisiones bajas sube con los años.
