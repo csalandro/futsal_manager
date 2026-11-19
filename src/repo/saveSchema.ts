@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { GameState } from '../domain/types';
 import { createFinance, defaultStaff, sponsorFromRating } from '../engine/finance';
+import { emptyMarket } from '../engine/world';
 
-export const CURRENT_SAVE_VERSION = 3;
+export const CURRENT_SAVE_VERSION = 4;
 
 // Validación superficial: versión y forma general. El detalle lo garantiza TypeScript al escribir.
 const saveEnvelope = z
@@ -67,9 +68,24 @@ export function migrateV2toV3(s: Obj): Obj {
   return { ...s, divisions, sponsorOffers: s.sponsorOffers ?? null };
 }
 
+/**
+ * v3 → v4: mercado de pases. Sin pretemporada (la partida ya estaba en curso), mercado vacío (se arma en el primer
+ * `tickMarket` al cargar), cartera vacía e historial h2h vacío (el clásico aparece tras 3 partidos nuevos).
+ */
+export function migrateV3toV4(s: Obj): Obj {
+  return {
+    ...s,
+    preseasonWeeksLeft: typeof s.preseasonWeeksLeft === 'number' ? s.preseasonWeeksLeft : 0,
+    market: s.market ?? emptyMarket(),
+    watchlist: Array.isArray(s.watchlist) ? s.watchlist : [],
+    h2h: s.h2h ?? {},
+  };
+}
+
 const MIGRATIONS: Record<number, (s: Obj) => Obj> = {
   1: migrateV1toV2,
   2: migrateV2toV3,
+  3: migrateV3toV4,
 };
 
 export function parseSave(raw: unknown): GameState | null {

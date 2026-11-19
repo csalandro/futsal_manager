@@ -166,3 +166,91 @@ export const STAFF = {
     { key: 'youthCoaches', label: 'Entrenador de juveniles', max: 2, note: 'Acelera el desarrollo de la cantera (llega en un próximo bloque).' },
   ],
 } as const;
+
+/**
+ * Mercado de pases. Un "día" es una fecha de liga: día = matchday + 1 de la liga (las 3 divisiones avanzan juntas;
+ * HTML 4086-4096: `day = matchday + 1`). La pretemporada son semanas previas a la fecha 1, sin partidos.
+ */
+export const MARKET = {
+  /** Semanas de pretemporada al inicio de cada temporada (HTML 1264, 2066). */
+  preseasonWeeks: 2,
+  /** Ventanas de pases en días de liga, inclusive (HTML 4090: `day<=3 || (day>=16 && day<=19)`). */
+  windows: [
+    { id: 'early', from: 1, to: 3 },
+    { id: 'mid', from: 16, to: 19 },
+  ],
+  /** Agentes libres por ventana y su calidad (HTML 4106-4114): 12% de estrellas 70-84, el resto 46-66. */
+  freeAgentCount: 8,
+  freeAgentStarChance: 0.12,
+  freeAgentStar: [70, 84],
+  freeAgentRegular: [46, 66],
+  /** Jugadores de otros clubes ofrecidos en cada fecha (HTML 4160-4172: 8 al azar, sin el único arquero). */
+  clubListingCount: 8,
+  /** Precio de un jugador de otro club: valor × 1,15 (HTML 4207, 4258, 4357). Los agentes libres cuestan su valor. */
+  clubPriceMult: 1.15,
+  /** Rango de división esperado según el rating del agente libre (HTML 4189-4193). */
+  expectedRank: [
+    { minRating: 68, rank: 3 },
+    { minRating: 52, rank: 2 },
+    { minRating: 0, rank: 1 },
+  ],
+  /** Nivel de cada división (HTML 882: DIV_RANK). */
+  divRank: { A: 3, B: 2, C: 1 },
+  /** Probabilidad de aceptar según la diferencia de nivel (HTML 4194-4199): sube 0 / 1 / 2 o más. */
+  acceptChance: { same: 0.92, oneLevel: 0.35, moreLevels: 0.08 },
+  /** "Difícil de convencer" si la probabilidad es menor (HTML 4249). */
+  hardSellBelow: 0.5,
+  /** Contrato al fichar o vender: rnd(2,4) años (HTML 4151, 4219, 4339). */
+  contractYears: [2, 4],
+  /** Ofertas por jugadores transferibles (HTML 4116-4137). */
+  offers: {
+    max: 4,
+    chancePerDay: 0.4,
+    /** Multiplicador del valor: contrato de 1 año o menos 0,60-0,85; si no, 0,85-1,20 (en centésimas). */
+    shortContract: [60, 85],
+    longContract: [85, 120],
+  },
+  /** Ojeadores (HTML 3992 solo los usa la cantera: sin regla para el mercado). Con 1 o más se ve el potencial real. */
+  scoutsToReveal: 1,
+  /** Sin ojeador, el potencial se muestra como un rango: [piso, techo] de margen (determinista por jugador). */
+  potentialSpread: { below: [2, 6], above: [2, 8] },
+  /** Una noticia de fichaje de la computadora se publica si el jugador tiene al menos este rating. */
+  newsMinRating: 70,
+  /** Máx. entradas de la cartera. */
+  watchlistMax: 30,
+  /** Mercado de la computadora (HTML 805-832) + freno a la acumulación de presupuesto. */
+  ai: {
+    /** HTML 807: compra con 35% si el plantel tiene menos de 20. */
+    buyChance: 0.35,
+    /** HTML 810: 50% elige un agente libre; si no, genera uno. */
+    fromPoolChance: 0.5,
+    /** NO está en el original (donde la computadora vacía la lista): tope de agentes libres que se lleva por evento. */
+    poolPicksPerEvent: 3,
+    /** HTML 813: 12% de estrella 68-82; si no 45-64. */
+    starChance: 0.12,
+    star: [68, 82],
+    regular: [45, 64],
+    /** HTML 823-831: vende al más flojo con 25% si tiene más de 8, y cobra 70% del valor. */
+    sellChance: 0.25,
+    sellMinSquad: 8,
+    sellShare: 0.7,
+    /** NO está en el original: los que tienen más plata que `reserve` invierten el excedente en fichajes. */
+    reserve: 20000,
+    /** Fracción del excedente que se gasta en cada evento de mercado. */
+    surplusShare: 0.9,
+    /** Máx. fichajes por evento por exceso de plata (calibrado en market.test.ts: mediana de presupuestos). */
+    maxSurplusBuys: 8,
+    /** Calidad de lo que compran con excedente: nivel de su división (TIER_LEVEL) + este plus. */
+    surplusTierBonus: 3,
+    /** Pagan como cualquier club comprador: valor × clubPriceMult (comisiones incluidas). */
+    surplusPriceMult: 1.15,
+    /** Con el plantel lleno, el fichaje por excedente reemplaza al más flojo (que se libera sin cobrar) si lo mejora en al menos esto. */
+    swapMinGain: 0,
+  },
+} as const;
+
+/** Clásicos (HTML 497-512): rival = el que más veces enfrentó el usuario y más parejo, con al menos 3 partidos. */
+export const RIVALRY = {
+  minMatches: 3,
+  balanceWeight: 3,
+} as const;

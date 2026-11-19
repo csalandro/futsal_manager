@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DivisionId, GameState, Team } from '../domain/types';
-import { parseSave } from '../repo/saveSchema';
+import { CURRENT_SAVE_VERSION, parseSave } from '../repo/saveSchema';
 import { ECONOMY, STADIUM_UPGRADES, STAFF } from './config';
 import {
   canSpend, chooseSponsorOffer, computeAttendance, ensureSponsorOffers, fireStaff, hireCost, hireStaff,
@@ -8,6 +8,7 @@ import {
   upgradeStadium,
 } from './finance';
 import { createNewGame } from './generate';
+import { tickMarket } from './market';
 import { createRng } from './rng';
 import { isSeasonOver, playMatchday, startNewSeason, userTeam } from './season';
 import { renewContract } from './squad';
@@ -84,6 +85,8 @@ describe('ingresos y gastos por fecha', () => {
 
   it('playMatchday cobra a todos los equipos, no solo al del usuario', () => {
     const s = newGame();
+    s.preseasonWeeksLeft = 0;
+    tickMarket(s); // el mercado de la computadora del día 1 ya ocurrió (si no, movería presupuestos en la 1ª fecha)
     const snapshot = new Map(
       (['A', 'B', 'C'] as const).flatMap((d) => s.divisions[d].teams.map((t) => [t.id, t.budget] as const)),
     );
@@ -266,7 +269,7 @@ describe('migración de guardado 2 → 3', () => {
         delete t.staff;
       }
     const loaded = parseSave(raw)!;
-    expect(loaded.version).toBe(3);
+    expect(loaded.version).toBe(CURRENT_SAVE_VERSION);
     expect(loaded.sponsorOffers).toBeNull();
     const t = loaded.divisions.B.teams[0];
     expect(t.finance.ticketPrice).toBe(ECONOMY.baseTicketPrice.B);

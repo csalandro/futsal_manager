@@ -1,5 +1,8 @@
-import type { GameState, Team } from '../domain/types';
+import { useCallback, useState } from 'react';
+import type { Team } from '../domain/types';
+import { isPreseason, marketWindow, windowStatusText } from '../engine/market';
 import { matchOdds } from '../engine/match';
+import { isRivalMatch, recentResults } from '../engine/rivalry';
 import { lineupIssues } from '../engine/squad';
 import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { standings } from '../engine/standings';
@@ -8,29 +11,8 @@ import { useGame } from '../store/gameStore';
 import { Badge } from './Badge';
 import { FinanceAlert } from './Club';
 import { pct } from './format';
-import { IconTable } from './icons';
-
-type Outcome = 'G' | 'E' | 'P';
-
-/** Últimos resultados del usuario, del más viejo al más nuevo. */
-function recentForm(game: GameState, teamId: string, n = 5): { outcome: Outcome; score: string; rival: string }[] {
-  const div = game.divisions[game.userDivision!];
-  const names = new Map(div.teams.map((t) => [t.id, t.name]));
-  const out: { outcome: Outcome; score: string; rival: string }[] = [];
-  for (const round of div.results) {
-    const r = round.find((m) => m.homeId === teamId || m.awayId === teamId);
-    if (!r) continue;
-    const home = r.homeId === teamId;
-    const mine = home ? r.hg : r.ag;
-    const theirs = home ? r.ag : r.hg;
-    out.push({
-      outcome: mine > theirs ? 'G' : mine < theirs ? 'P' : 'E',
-      score: `${mine}-${theirs}`,
-      rival: names.get(home ? r.awayId : r.homeId) ?? '',
-    });
-  }
-  return out.slice(-n);
-}
+import { IconMarket, IconTable } from './icons';
+import { RivalDialog } from './RivalDialog';
 
 function MiniTable({ teams, me, divId }: { teams: Team[]; me: string; divId: string }) {
   const setTab = useGame((s) => s.setTab);
@@ -83,7 +65,10 @@ export function Home() {
   const quickPlayMatchday = useGame((s) => s.quickPlayMatchday);
   const nextSeason = useGame((s) => s.nextSeason);
   const autoLineup = useGame((s) => s.autoLineup);
+  const advancePreseason = useGame((s) => s.advancePreseason);
   const setTab = useGame((s) => s.setTab);
+  const [rivalOpen, setRivalOpen] = useState(false);
+  const closeRival = useCallback(() => setRivalOpen(false), []);
   if (!game || !game.userDivision || !game.userTeamId) return null;
   const team = userTeam(game);
   if (!team) return null;
@@ -95,7 +80,11 @@ export function Home() {
   const odds = fx ? matchOdds(fx.home, fx.away) : null;
   const table = standings(game.divisions[game.userDivision].teams);
   const pos = table.findIndex((t) => t.id === game.userTeamId) + 1;
-  const form = recentForm(game, game.userTeamId);
+  const form = recentResults(game, game.userTeamId);
+  const preseason = isPreseason(game);
+  const market = marketWindow(game);
+  const classic = fx ? isRivalMatch(game, fx.home.id, fx.away.id) : false;
+  const nextRival = fx ? (fx.home.id === game.userTeamId ? fx.away : fx.home) : null;
   const sponsorPending = game.sponsorOffers?.season === game.season;
   const topScorer = [...team.squad].sort((a, b) => b.stats.goals - a.stats.goals)[0];
 
@@ -112,7 +101,33 @@ export function Home() {
           </p>
         )}
       </div>
-      {over ? (
+      {preseason ? (
+        <section className="panel hero span-2">
+          <header className="panel-head">
+            <h2>Pretemporada</h2>
+            <span className="tag accent">Mercado abierto</span>
+          </header>
+          <div className="season-end">
+            <span className="trophy" aria-hidden="true">
+              🏋️
+            </span>
+            <div>
+              <h2>
+                {game.preseasonWeeksLeft === 1 ? 'Falta 1 semana' : `Faltan ${game.preseasonWeeksLeft} semanas`} para el inicio del torneo
+              </h2>
+              <p>El mercado de pases está abierto: es el momento de reforzar el plantel antes de que arranque la competencia.</p>
+            </div>
+          </div>
+          <div className="actions">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => void advancePreseason()}>
+              Avanzar semana de pretemporada
+            </button>
+            <button type="button" className="btn" onClick={() => setTab('market')}>
+              <IconMarket size={16} /> Ir al mercado
+            </button>
+          </div>
+        </section>
+      ) : over ? (
         <section className="panel hero span-2">
           <div className="season-end">
             <span className="trophy" aria-hidden="true">
@@ -133,7 +148,9 @@ export function Home() {
         <section className="panel hero span-2">
           <header className="panel-head">
             <h2>Próximo partido</h2>
-            <span className="tag">Fecha {fx.matchday + 1}</span>
+            <span className="tag">
+              {classic && <b className="classic">🔥 ¡Clásico! </b>}Fecha {fx.matchday + 1}
+            </span>
           </header>
           <div className="fixture-hero">
             <div className="fh-team">
@@ -194,6 +211,9 @@ export function Home() {
             <button type="button" className="btn" disabled={busy || blocked} onClick={() => void quickPlayMatchday()}>
               Simular fecha
             </button>
+            <button type="button" className="btn ghost" onClick={() => setRivalOpen(true)} aria-haspopup="dialog">
+              Ver al rival
+            </button>
           </div>
         </section>
       ) : (
@@ -202,6 +222,14 @@ export function Home() {
         </section>
       )}
 
+      {!preseason && (
+        <p className="span-2 muted small market-line" role="status">
+          <IconMarket size={16} /> Mercado de pases: {market.open ? 'abierto' : 'cerrado'}. {windowStatusText(market)}{' '}
+          <button type="button" className="link" onClick={() => setTab('market')}>
+            Ir al mercado
+          </button>
+        </p>
+      )}
       <section className="panel">
         <header className="panel-head">
           <h2>Estado del club</h2>
@@ -272,6 +300,7 @@ export function Home() {
           </ul>
         )}
       </section>
+      {rivalOpen && nextRival && <RivalDialog teamId={nextRival.id} onClose={closeRival} />}
     </div>
   );
 }

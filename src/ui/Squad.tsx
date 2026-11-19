@@ -134,6 +134,11 @@ export function Squad() {
                   <td className="left sticky">
                     <span className="player-cell">
                       <span className="pname">{p.name}</span>
+                      {p.transferListed && (
+                        <span className="tag tiny" title="Transferible: puede recibir ofertas" role="img" aria-label="Transferible">
+                          📢
+                        </span>
+                      )}
                       {starter && (
                         <span className="tag tiny starter-tag" title="Titular">
                           <span className="hide-sm">Titular</span>

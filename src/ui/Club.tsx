@@ -18,11 +18,13 @@ const CONCEPT: Record<FinanceConcept, string> = {
   staff: 'Sueldos del staff',
   mantenimiento: 'Mantenimiento del estadio',
   contratos: 'Contratos (renovaciones e indemnizaciones)',
+  fichajes: 'Fichajes',
+  ventas: 'Venta de jugadores',
   estadio: 'Ampliaciones del estadio',
   empleados: 'Contratación de empleados',
 };
-const INCOME: FinanceConcept[] = ['entradas', 'sponsor', 'bono'];
-const EXPENSE: FinanceConcept[] = ['sueldos', 'staff', 'mantenimiento', 'contratos', 'estadio', 'empleados'];
+const INCOME: FinanceConcept[] = ['entradas', 'sponsor', 'bono', 'ventas'];
+const EXPENSE: FinanceConcept[] = ['sueldos', 'staff', 'mantenimiento', 'contratos', 'fichajes', 'estadio', 'empleados'];
 
 const signed = (n: number) => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`;
 

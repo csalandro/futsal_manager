@@ -96,6 +96,14 @@ export const IconBall = (p: P) => (
     <path d="M12 3v4M16 10l4.5-1.5M14.5 14.5 17 19M9.5 14.5 7 19M8 10 3.5 8.5" />
   </Svg>
 );
+export const IconMarket = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 7h13l-1.6 7.5H8.2z" />
+    <path d="M7 7 6.2 4H3" />
+    <circle cx="9.5" cy="19" r="1.4" />
+    <circle cx="17" cy="19" r="1.4" />
+  </Svg>
+);
 export const IconClub = (p: P) => (
   <Svg {...p}>
     <rect x="3" y="7" width="18" height="12" rx="2" />

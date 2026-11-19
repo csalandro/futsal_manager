@@ -1,3 +1,4 @@
+import { isPreseason } from '../engine/market';
 import { lineupIssues } from '../engine/squad';
 import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { useAuth } from '../store/authStore';
@@ -6,7 +7,8 @@ import { Badge } from './Badge';
 import { Club } from './Club';
 import { Fixture } from './Fixture';
 import { Home } from './Home';
-import { IconArrow, IconCalendar, IconClub, IconHome, IconLogout, IconSave, IconSquad, IconTable, IconTactics } from './icons';
+import { IconArrow, IconCalendar, IconClub, IconHome, IconLogout, IconMarket, IconSave, IconSquad, IconTable, IconTactics } from './icons';
+import { Market } from './Market';
 import { Squad } from './Squad';
 import { Table } from './Table';
 import { Tactics } from './Tactics';
@@ -17,6 +19,7 @@ const TABS: { id: Tab; label: string; short: string; icon: (p: { size?: number }
   { id: 'tactics', label: 'Tácticas', short: 'Tácticas', icon: IconTactics },
   { id: 'table', label: 'Competición', short: 'Tabla', icon: IconTable },
   { id: 'fixture', label: 'Calendario', short: 'Fixture', icon: IconCalendar },
+  { id: 'market', label: 'Mercado de pases', short: 'Mercado', icon: IconMarket },
   { id: 'club', label: 'Club', short: 'Club', icon: IconClub },
 ];
 
@@ -29,6 +32,7 @@ export function Game() {
   const backToMenu = useGame((s) => s.backToMenu);
   const startUserMatch = useGame((s) => s.startUserMatch);
   const nextSeason = useGame((s) => s.nextSeason);
+  const advancePreseason = useGame((s) => s.advancePreseason);
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
 
@@ -39,11 +43,13 @@ export function Game() {
   const total = div.schedule.length;
   const played = Math.min(div.matchday, total);
   const over = isSeasonOver(game);
+  const preseason = isPreseason(game);
   const next = over ? null : userNextFixture(game);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   const onContinue = () => {
     if (over) void nextSeason();
+    else if (preseason) void advancePreseason();
     else if (next) {
       // Con la alineación inválida, se lleva al usuario a Inicio, donde se explica y se puede autocompletar.
       if (lineupIssues(team).length > 0) setTab('home');
@@ -100,7 +106,7 @@ export function Game() {
           <div className="tb-title">
             <h1>{current.label}</h1>
             <span className="tb-sub">
-              Temp. {game.season} · Fecha {played}/{total}
+              Temp. {game.season} · {preseason ? 'Pretemporada' : `Fecha ${played}/${total}`}
               {busy && <span className="saving"> · Guardando…</span>}
             </span>
           </div>
@@ -109,9 +115,9 @@ export function Game() {
             className="btn continue"
             onClick={onContinue}
             disabled={busy || (!over && !next)}
-            title={over ? 'Empezar la siguiente temporada' : 'Jugar el próximo partido'}
+            title={over ? 'Empezar la siguiente temporada' : preseason ? 'Avanzar una semana de pretemporada' : 'Jugar el próximo partido'}
           >
-            <span>{over ? 'Nueva temporada' : 'Continuar'}</span>
+            <span>{over ? 'Nueva temporada' : preseason ? 'Avanzar semana' : 'Continuar'}</span>
             <IconArrow size={18} />
           </button>
         </header>
@@ -127,6 +133,7 @@ export function Game() {
           {tab === 'tactics' && <Tactics />}
           {tab === 'table' && <Table />}
           {tab === 'fixture' && <Fixture />}
+          {tab === 'market' && <Market />}
           {tab === 'club' && <Club />}
         </main>
       </div>

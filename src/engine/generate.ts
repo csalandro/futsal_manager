@@ -2,11 +2,12 @@
 import { CITY_NAMES, CLUB_WORDS, FIRST_NAMES, LAST_NAMES, ORIGINS, TEAM_COLORS, TRAITS } from '../data/names';
 import type { DivisionId, Foot, GameState, Player, Position, Team } from '../domain/types';
 import { CURRENT_SAVE_VERSION } from '../repo/saveSchema';
-import { ECONOMY, LEAGUE } from './config';
+import { ECONOMY, LEAGUE, MARKET } from './config';
 import { createFinance, defaultStaff } from './finance';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
 import { emptyRecord } from './standings';
+import { emptyMarket } from './world';
 
 export const TIER_LEVEL: Record<DivisionId, [number, number]> = { A: [60, 80], B: [46, 64], C: [34, 52] };
 
@@ -134,5 +135,9 @@ export function createNewGame(seed: number, dtName: string): GameState {
     divisions,
     news: [],
     sponsorOffers: null,
+    preseasonWeeksLeft: MARKET.preseasonWeeks, // HTML 1264: la primera temporada también arranca con pretemporada
+    market: emptyMarket(),
+    watchlist: [],
+    h2h: {},
   };
 }

@@ -8,6 +8,7 @@ import {
 } from '../engine/finance';
 import { createNewGame } from '../engine/generate';
 import { composeMatch, simulateHalf, type HalfResult, type SimulatedMatch } from '../engine/match';
+import { acceptOffer, advancePreseason, buyPlayer, isPreseason, rejectOffer, tickMarket, toggleTransferListed, toggleWatch } from '../engine/market';
 import { createRng, randomSeed } from '../engine/rng';
 import { isSeasonOver, playMatchday, pushNews, startNewSeason, userNextFixture, userTeam } from '../engine/season';
 import {
@@ -17,7 +18,13 @@ import { repository, type SaveSummary } from '../repo';
 import { onLogout } from './authStore';
 
 export type Screen = 'menu' | 'pickTeam' | 'game' | 'admin';
-export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture' | 'club';
+export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture' | 'market' | 'club';
+
+/** Resultado de una acción de mercado: `ok` y el texto para mostrarle al usuario. */
+export interface MarketNotice {
+  ok: boolean;
+  message: string;
+}
 
 /** Movimientos del usuario fuera de fecha: se anotan en la temporada en curso, sin número de fecha. */
 const offMatchday = (g: GameState): FinanceCtx => ({ season: g.season, matchday: null });
@@ -65,6 +72,8 @@ interface Store {
   /** Juega la fecha sin ver el partido. */
   quickPlayMatchday(): Promise<void>;
   nextSeason(): Promise<void>;
+  /** Avanza una semana de pretemporada (sin partidos). */
+  advancePreseason(): Promise<void>;
 
   setLineupSlot(index: number, playerId: string | null): void;
   setTactic(patch: Partial<Tactic>): void;
@@ -84,6 +93,13 @@ interface Store {
   hireStaff(key: StaffKey): string | null;
   fireStaff(key: StaffKey): string | null;
   chooseSponsor(index: number): string | null;
+
+  /** Mercado de pases. */
+  buyPlayer(playerId: string): MarketNotice;
+  toggleTransferListed(playerId: string): MarketNotice;
+  acceptOffer(playerId: string, teamId: string): MarketNotice;
+  rejectOffer(playerId: string, teamId: string): void;
+  toggleWatch(playerId: string): MarketNotice;
 }
 
 let saving: Promise<void> | null = null;
@@ -121,6 +137,7 @@ export const useGame = create<Store>()(
         s.game.userTeamId = teamId;
         s.game.userDivision = div ?? null;
         ensureSponsorOffers(s.game);
+        tickMarket(s.game); // arma el mercado ya sabiendo cuál es el equipo del usuario
         s.screen = 'game';
       });
       await get().persist();
@@ -132,6 +149,7 @@ export const useGame = create<Store>()(
         const game = await repository.load(slot);
         if (!game) throw new Error('No se pudo cargar la partida (vacía o de una versión incompatible)');
         ensureSponsorOffers(game); // partidas migradas o con la temporada recién empezada
+        tickMarket(game); // partidas migradas de v3: arma el mercado de la ventana en curso
         set({ game, slot, screen: game.userTeamId ? 'game' : 'pickTeam', tab: 'home', live: null });
       } catch (e) {
         set({ error: e instanceof Error ? e.message : String(e) });
@@ -194,7 +212,7 @@ export const useGame = create<Store>()(
 
     startUserMatch() {
       set((s) => {
-        if (!s.game || s.live) return;
+        if (!s.game || s.live || isPreseason(s.game)) return;
         const fx = userNextFixture(s.game);
         if (!fx) return;
         const me = userTeam(s.game);
@@ -241,7 +259,7 @@ export const useGame = create<Store>()(
     async quickPlayMatchday() {
       set((s) => {
         const me = s.game && userTeam(s.game);
-        if (s.game && me && lineupIssues(me).length === 0) playMatchday(s.game);
+        if (s.game && me && !isPreseason(s.game) && lineupIssues(me).length === 0) playMatchday(s.game);
       });
       await get().persist();
     },
@@ -249,6 +267,13 @@ export const useGame = create<Store>()(
     async nextSeason() {
       set((s) => {
         if (s.game && isSeasonOver(s.game)) startNewSeason(s.game);
+      });
+      await get().persist();
+    },
+
+    async advancePreseason() {
+      set((s) => {
+        if (s.game && !s.live) advancePreseason(s.game);
       });
       await get().persist();
     },
@@ -415,6 +440,63 @@ export const useGame = create<Store>()(
       });
       if (!error) void get().persist();
       return error;
+    },
+
+    buyPlayer(playerId) {
+      let notice: MarketNotice = { ok: false, message: 'No hay partida.' };
+      set((s) => {
+        if (!s.game || s.live) return;
+        const res = buyPlayer(s.game, playerId);
+        notice = res.ok
+          ? { ok: true, message: `Fichaste a ${res.player.name} (${res.from}) por $ ${res.price.toLocaleString('es-AR')}.` }
+          : { ok: false, message: res.reason };
+      });
+      void get().persist(); // un rechazo también consume azar: se guarda para que recargar no permita repetirlo
+      return notice;
+    },
+
+    toggleTransferListed(playerId) {
+      let notice: MarketNotice = { ok: false, message: 'No hay partida.' };
+      set((s) => {
+        if (!s.game || s.live) return;
+        const res = toggleTransferListed(s.game, playerId);
+        notice = res.ok
+          ? { ok: true, message: res.listed ? 'Quedó en la lista de transferibles: puede recibir ofertas.' : 'Salió de la lista de transferibles.' }
+          : { ok: false, message: res.reason };
+      });
+      void get().persist();
+      return notice;
+    },
+
+    acceptOffer(playerId, teamId) {
+      let notice: MarketNotice = { ok: false, message: 'No hay partida.' };
+      set((s) => {
+        if (!s.game || s.live) return;
+        const res = acceptOffer(s.game, playerId, teamId);
+        notice = res.ok
+          ? { ok: true, message: `Vendiste a ${res.player.name} a ${res.from} por $ ${res.price.toLocaleString('es-AR')}.` }
+          : { ok: false, message: res.reason };
+      });
+      void get().persist();
+      return notice;
+    },
+
+    rejectOffer(playerId, teamId) {
+      set((s) => {
+        if (s.game) rejectOffer(s.game, playerId, teamId);
+      });
+      void get().persist();
+    },
+
+    toggleWatch(playerId) {
+      let notice: MarketNotice = { ok: false, message: 'No hay partida.' };
+      set((s) => {
+        if (!s.game) return;
+        const res = toggleWatch(s.game, playerId);
+        notice = res.ok ? { ok: true, message: res.watching ? 'Agregado a la cartera.' : 'Quitado de la cartera.' } : { ok: false, message: res.reason };
+      });
+      void get().persist();
+      return notice;
     },
   })),
 );

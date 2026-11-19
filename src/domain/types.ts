@@ -32,6 +32,8 @@ export interface Player {
   suspension: number;
   /** Amarillas acumuladas hacia la próxima suspensión. */
   yellowAccum: number;
+  /** El usuario lo puso en la lista de transferibles: puede recibir ofertas (HTML 3018-3023). Ausente = no. */
+  transferListed?: boolean;
 }
 
 export interface PlayerStats {
@@ -67,6 +69,8 @@ export type FinanceConcept =
   | 'staff'
   | 'mantenimiento'
   | 'contratos'
+  | 'fichajes'
+  | 'ventas'
   | 'estadio'
   | 'empleados';
 
@@ -163,6 +167,62 @@ export interface GameState {
   news: string[];
   /** Ofertas de auspiciantes pendientes para el usuario (HTML 538-552). null = nada para elegir. */
   sponsorOffers: { season: number; offers: SponsorOffer[] } | null;
+  /** Semanas de pretemporada que faltan (sin partidos, mercado abierto). HTML 1264, 2066, 2270. */
+  preseasonWeeksLeft: number;
+  market: MarketState;
+  watchlist: WatchEntry[];
+  /** Historial por par de equipos; clave = ids ordenados unidos con '|'. */
+  h2h: Record<string, H2HRecord>;
+}
+
+/** Oferta de otro club por un jugador del usuario (HTML 4116-4137). */
+export interface TransferOffer {
+  playerId: string;
+  /** Club que ofrece. */
+  teamId: string;
+  price: number;
+}
+
+/** Un jugador de otro club ofrecido en la lista de la ventana (HTML 4160-4172). */
+export interface ClubListing {
+  playerId: string;
+  teamId: string;
+}
+
+export interface MarketState {
+  /** Ventana para la que se generaron los agentes libres (p. ej. 'early-1'); null = ninguna todavía. */
+  freeAgentsWindow: string | null;
+  freeAgents: Player[];
+  /** Jugadores de otros clubes ofrecidos; se renuevan en cada fecha con el mercado abierto. */
+  clubListings: ClubListing[];
+  /** Marca de la fecha en que se renovaron `clubListings` y las ofertas (idempotencia). */
+  dayKey: string | null;
+  /** Ofertas recibidas por jugadores transferibles del usuario. */
+  offers: TransferOffer[];
+  /** Eventos de mercado de la computadora ya procesados (p. ej. 'early-1:open'). */
+  aiDone: string[];
+  /** Jugadores que rechazaron al usuario en la ventana actual (no se puede insistir). */
+  refused: string[];
+}
+
+/** Jugador seguido en la cartera: foto del momento en que se agregó y evolución por temporada. */
+export interface WatchEntry {
+  playerId: string;
+  /** Último club conocido. */
+  teamId: string;
+  since: { season: number; rating: number; potential: number };
+  history: { season: number; rating: number }[];
+}
+
+/** Historial entre dos equipos, desde la óptica del de id menor (`first`). */
+export interface H2HRecord {
+  first: string;
+  second: string;
+  firstWins: number;
+  draws: number;
+  secondWins: number;
+  firstGoals: number;
+  secondGoals: number;
 }
 
 export type MatchEventType = 'goal' | 'chance' | 'save' | 'foul' | 'build' | 'injury';

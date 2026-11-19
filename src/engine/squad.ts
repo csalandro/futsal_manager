@@ -166,3 +166,18 @@ export function movePenaltyTaker(team: Team, playerId: string, dir: -1 | 1): voi
   if (i < 0 || j < 0 || j >= team.penaltyTakers.length) return;
   [team.penaltyTakers[i], team.penaltyTakers[j]] = [team.penaltyTakers[j], team.penaltyTakers[i]];
 }
+
+/** Motivo por el que no se puede vender/traspasar a un jugador sin dejar el plantel inválido, o null. */
+export function sellBlocker(team: Team, p: Player): string | null {
+  if (team.squad.length <= SQUAD.minAfterFire) return `El plantel mínimo es de ${SQUAD.minAfterFire} jugadores.`;
+  if (p.pos === 'POR' && availableGkCount(team, p.id) === 0) return 'Es el único arquero disponible.';
+  return null;
+}
+
+/** Le da a un jugador que llega un número libre: conserva el suyo si está libre; si no, uno al azar entre los libres. */
+export function assignFreeNumber(team: Team, p: Player, rng: Rng): void {
+  const taken = new Set(team.squad.filter((x) => x.id !== p.id).map((x) => x.number));
+  if (p.number >= 1 && p.number <= 99 && !taken.has(p.number)) return;
+  const free = Array.from({ length: 99 }, (_, i) => i + 1).filter((n) => !taken.has(n));
+  p.number = free.length ? rng.pick(free) : p.number;
+}

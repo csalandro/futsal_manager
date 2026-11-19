@@ -1,34 +1,26 @@
 // Avance de temporada: jugar fechas, actualizar estado de jugadores, ascensos/descensos y progresión.
 // Las funciones MUTAN el estado recibido (se llaman dentro de immer `produce`).
 import type { DivisionId, GameState, MatchEvent, MatchResult, Player, Team } from '../domain/types';
-import { DISCIPLINE, FORM, RETIREMENT, SQUAD } from './config';
+import { DISCIPLINE, FORM, MARKET, RETIREMENT, SQUAD } from './config';
 import {
   computeAttendance, defaultTicketPrice, ensureSponsorOffers, generateSponsorOffers, medicalLevels, medicRecoveryMult, pickBestOffer,
   processClubFinances, signSponsor,
 } from './finance';
 import { generatePlayer, playerValue } from './generate';
+import { tickMarket } from './market';
 import { simulateMatch, type SimulatedMatch } from './match';
 import { createRng, type Rng } from './rng';
+import { isRivalMatch, recordH2H } from './rivalry';
 import { doubleRoundRobin } from './schedule';
 import { bestAvailableFive, canAddPlayer } from './squad';
 import { applyResult, emptyRecord, standings } from './standings';
 import { PRESS_META } from './strength';
+import { allTeams, DIVISIONS, findTeam, pushNews, userTeam } from './world';
 
-const DIVISIONS: DivisionId[] = ['A', 'B', 'C'];
+// Estas consultas viven en world.ts (para evitar ciclos); se reexportan porque el resto de la app las importa de acá.
+export { allTeams, findTeam, pushNews, userTeam };
+
 const PROMOTION_SLOTS = 2;
-const MAX_NEWS = 30;
-
-export function allTeams(state: GameState): Team[] {
-  return DIVISIONS.flatMap((d) => state.divisions[d].teams);
-}
-
-export function findTeam(state: GameState, id: string): Team | undefined {
-  return allTeams(state).find((t) => t.id === id);
-}
-
-export function userTeam(state: GameState): Team | undefined {
-  return state.userTeamId ? findTeam(state, state.userTeamId) : undefined;
-}
 
 export function userNextFixture(state: GameState): { home: Team; away: Team; matchday: number } | null {
   if (!state.userDivision || !state.userTeamId) return null;
@@ -49,12 +41,6 @@ export function updateMorale(team: Team, outcome: 'win' | 'draw' | 'loss', rng: 
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
-
-/** Agrega una noticia al principio de la bandeja (máx MAX_NEWS). */
-export function pushNews(state: GameState, text: string): void {
-  state.news.unshift(text);
-  if (state.news.length > MAX_NEWS) state.news.length = MAX_NEWS;
-}
 
 function updateFatigue(team: Team): void {
   const mult = PRESS_META[team.tactic.press]?.fatigueMult ?? 1;
@@ -171,6 +157,7 @@ function userOutcomeText(state: GameState, home: Team, away: Team, r: MatchResul
 
 /** Juega la fecha actual de las 3 divisiones. */
 export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchResult[] {
+  state.preseasonWeeksLeft = 0; // jugar una fecha implica que la pretemporada terminó
   const rng = createRng(state.rngState);
   const all: MatchResult[] = [];
 
@@ -206,7 +193,8 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
       updateFatigue(home);
       updateFatigue(away);
       // Plata de la fecha (HTML 563-592, ahora para todos): la asistencia sale del estadio del local.
-      const attendance = computeAttendance(home, d, rng);
+      // Clásico del usuario (HTML 1176): se evalúa con el historial previo a este partido.
+      const attendance = computeAttendance(home, d, rng, isRivalMatch(state, hid, aid));
       for (const t of [home, away]) {
         const mine = t.id === state.userTeamId;
         processClubFinances(
@@ -216,6 +204,7 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
           mine ? (text) => pushNews(state, text) : undefined,
         );
       }
+      recordH2H(state, hid, aid, r.hg, r.ag);
       played.push(r);
 
       if (isUser) pushNews(state, userOutcomeText(state, home, away, r, div.matchday));
@@ -226,6 +215,7 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
   }
 
   state.rngState = rng.state();
+  tickMarket(state); // ventanas de pases: mercado de la computadora, ofertas y listas (HTML 839-846)
   return all;
 }
 
@@ -348,6 +338,7 @@ export function startNewSeason(state: GameState): void {
   }
 
   state.season++;
+  state.preseasonWeeksLeft = MARKET.preseasonWeeks; // HTML 2066
   // Sponsors de la nueva temporada: la computadora elige sola (la que más plata deja); el usuario elige en Club.
   for (const d of DIVISIONS) {
     for (const t of state.divisions[d].teams) {
@@ -367,4 +358,5 @@ export function startNewSeason(state: GameState): void {
     );
   }
   state.rngState = rng.state();
+  tickMarket(state);
 }
