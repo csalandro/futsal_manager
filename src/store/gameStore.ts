@@ -1,24 +1,29 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { GameState, StaffKey, Tactic } from '../domain/types';
+import type { GameState, StaffKey, Tactic, Team, TrainingIntensity } from '../domain/types';
 import type { StadiumUpgradeKey } from '../engine/config';
 import {
   chooseSponsorOffer, ensureSponsorOffers, fireStaff, hireStaff, medicalLevels, recordMovement, renameStadium,
   setTicketPrice, upgradeStadium, type FinanceCtx,
 } from '../engine/finance';
 import { ensureCompetitions } from '../engine/competitions';
+import { acceptJobOffer, openTenure, rejectJobOffer, renameDt, setDtAge } from '../engine/dt';
 import { createNewGame } from '../engine/generate';
 import { composeMatch, simulateHalf, type HalfResult, type SimulatedMatch } from '../engine/match';
 import { acceptOffer, advancePreseason, buyPlayer, isPreseason, rejectOffer, tickMarket, toggleTransferListed, toggleWatch } from '../engine/market';
 import { createRng, randomSeed } from '../engine/rng';
-import { isSeasonOver, playNextStep, pushNews, startNewSeason, userNextFixture, userTeam } from '../engine/season';
+import { isSeasonOver, playNextStep, pushNews, startNewSeason, userNextFixture, userTeam, waitForOffers } from '../engine/season';
+import type { ActionResult } from '../engine/squad';
 import {
   bestAvailableFive, firePlayer, lineupIssues, movePenaltyTaker, renewContract, setPlayerNumber, togglePenaltyTaker,
 } from '../engine/squad';
+import { setTrainingIntensity, toggleTraining, upgradeTrainingFacility } from '../engine/training';
+import { demoteToAcademy, promoteYouth, sellYouth, upgradeAcademy } from '../engine/youth';
 import { repository, type SaveSummary } from '../repo';
 import { onLogout } from './authStore';
 
 export type Screen = 'menu' | 'pickTeam' | 'game' | 'admin';
+export type ClubView = 'finanzas' | 'estadio' | 'empleados' | 'sponsor' | 'dt';
 export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture' | 'market' | 'club';
 
 /** Resultado de una acción de mercado: `ok` y el texto para mostrarle al usuario. */
@@ -55,6 +60,8 @@ interface Store {
   busy: boolean;
   error: string | null;
   live: LiveMatch | null;
+  /** Subvista abierta en Club (para poder entrar directo a DT desde Inicio). */
+  clubView: ClubView;
 
   refreshSaves(): Promise<void>;
   newGame(dtName: string, slot: number): void;
@@ -63,6 +70,9 @@ interface Store {
   deleteSave(slot: number): Promise<void>;
   persist(): Promise<void>;
   setTab(tab: Tab): void;
+  setClubView(view: ClubView): void;
+  /** Abre Club en una subvista. */
+  openClub(view: ClubView): void;
   backToMenu(): void;
   openAdmin(): void;
   /** Vuelve al estado inicial (al cerrar sesión). */
@@ -105,6 +115,23 @@ interface Store {
   acceptOffer(playerId: string, teamId: string): MarketNotice;
   rejectOffer(playerId: string, teamId: string): void;
   toggleWatch(playerId: string): MarketNotice;
+
+  /** Entrenamiento y cantera: devuelven un mensaje de error (o null si salió bien). */
+  toggleTraining(playerId: string): string | null;
+  setTrainingIntensity(playerId: string, intensity: TrainingIntensity): string | null;
+  upgradeTrainingFacility(): string | null;
+  upgradeAcademy(): string | null;
+  promoteYouth(playerId: string): string | null;
+  demoteToAcademy(playerId: string): string | null;
+  sellYouth(playerId: string): string | null;
+
+  /** DT: perfil y ofertas de trabajo. */
+  setDtName(name: string): void;
+  setDtAge(age: number): void;
+  acceptJobOffer(teamId: string): string | null;
+  rejectJobOffer(teamId: string): void;
+  /** Sin club: deja pasar el tiempo hasta que llegue alguna oferta. */
+  waitForOffers(): Promise<void>;
 }
 
 let saving: Promise<void> | null = null;
@@ -120,6 +147,7 @@ export const useGame = create<Store>()(
     busy: false,
     error: null,
     live: null,
+    clubView: 'finanzas',
 
     async refreshSaves() {
       try {
@@ -141,6 +169,7 @@ export const useGame = create<Store>()(
         const div = (['A', 'B', 'C'] as const).find((d) => s.game!.divisions[d].teams.some((t) => t.id === teamId));
         s.game.userTeamId = teamId;
         s.game.userDivision = div ?? null;
+        openTenure(s.game);
         ensureSponsorOffers(s.game);
         ensureCompetitions(s.game); // sortea la copa y fija el objetivo del usuario
         tickMarket(s.game); // arma el mercado ya sabiendo cuál es el equipo del usuario
@@ -157,7 +186,7 @@ export const useGame = create<Store>()(
         ensureSponsorOffers(game); // partidas migradas o con la temporada recién empezada
         ensureCompetitions(game); // partidas migradas de v4: sortea la copa, arma los playoffs y fija el objetivo
         tickMarket(game); // partidas migradas de v3: arma el mercado de la ventana en curso
-        set({ game, slot, screen: game.userTeamId ? 'game' : 'pickTeam', tab: 'home', live: null });
+        set({ game, slot, screen: game.userTeamId || game.dt.unemployed ? 'game' : 'pickTeam', tab: 'home', live: null });
       } catch (e) {
         set({ error: e instanceof Error ? e.message : String(e) });
       } finally {
@@ -202,6 +231,14 @@ export const useGame = create<Store>()(
 
     setTab(tab) {
       set({ tab });
+    },
+
+    setClubView(view) {
+      set({ clubView: view });
+    },
+
+    openClub(view) {
+      set({ tab: 'club', clubView: view });
     },
 
     backToMenu() {
@@ -508,7 +545,111 @@ export const useGame = create<Store>()(
       void get().persist();
       return notice;
     },
+
+    toggleTraining(playerId) {
+      return runTeamAction((team) => toggleTraining(team, playerId));
+    },
+
+    setTrainingIntensity(playerId, intensity) {
+      return runTeamAction((team) => setTrainingIntensity(team, playerId, intensity));
+    },
+
+    upgradeTrainingFacility() {
+      return runTeamAction((team, g) => {
+        const res = upgradeTrainingFacility(team, offMatchday(g));
+        if (res.ok) pushNews(g, `🏋️ Mejoraste el centro de entrenamiento: nivel ${team.trainingFacility}.`);
+        return res;
+      });
+    },
+
+    upgradeAcademy() {
+      return runTeamAction((team, g) => {
+        const res = upgradeAcademy(team, offMatchday(g));
+        if (res.ok) pushNews(g, `🌱 Mejoraste el centro juvenil: nivel ${team.academyFacility}.`);
+        return res;
+      });
+    },
+
+    promoteYouth(playerId) {
+      return runTeamAction((team, g) => {
+        const rng = createRng(g.rngState);
+        const name = team.academy.find((p) => p.id === playerId)?.name ?? 'El juvenil';
+        const res = promoteYouth(team, playerId, rng);
+        g.rngState = rng.state();
+        if (res.ok) pushNews(g, `⬆️ ${name} subió al primer equipo.`);
+        return res;
+      });
+    },
+
+    demoteToAcademy(playerId) {
+      return runTeamAction((team) => demoteToAcademy(team, playerId));
+    },
+
+    sellYouth(playerId) {
+      return runTeamAction((team, g) => {
+        const name = team.academy.find((p) => p.id === playerId)?.name ?? 'el juvenil';
+        const res = sellYouth(team, playerId, offMatchday(g));
+        if (res.ok) pushNews(g, `💰 Vendiste a ${name} por $ ${(-res.cost).toLocaleString('es-AR')}.`);
+        return res;
+      });
+    },
+
+    setDtName(name) {
+      set((s) => {
+        if (s.game) renameDt(s.game, name);
+      });
+      void get().persist();
+    },
+
+    setDtAge(age) {
+      set((s) => {
+        if (s.game) setDtAge(s.game, age);
+      });
+      void get().persist();
+    },
+
+    acceptJobOffer(teamId) {
+      let error: string | null = null;
+      set((s) => {
+        if (!s.game || s.live) {
+          error = 'No se puede cambiar de club en este momento.';
+          return;
+        }
+        const res = acceptJobOffer(s.game, teamId);
+        if (!res.ok) error = res.reason;
+        else s.tab = 'home';
+      });
+      if (!error) void get().persist();
+      return error;
+    },
+
+    rejectJobOffer(teamId) {
+      set((s) => {
+        if (s.game) rejectJobOffer(s.game, teamId);
+      });
+      void get().persist();
+    },
+
+    async waitForOffers() {
+      set((s) => {
+        if (s.game && !s.live) waitForOffers(s.game);
+      });
+      await get().persist();
+    },
   })),
 );
+
+/** Acción del usuario sobre su equipo: aplica `fn`, y si sale bien guarda; devuelve el error (o null). */
+function runTeamAction(fn: (team: Team, g: GameState) => ActionResult): string | null {
+  let error: string | null = null;
+  useGame.setState((s) => {
+    const team = s.game && userTeam(s.game);
+    if (!s.game || !team) return;
+    const res = fn(team, s.game);
+    if (!res.ok) error = res.reason;
+  });
+  if (!error) void useGame.getState().persist();
+  return error;
+}
 
 onLogout(() => useGame.getState().reset());

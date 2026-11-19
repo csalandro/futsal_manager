@@ -74,7 +74,8 @@ export type FinanceConcept =
   | 'fichajes'
   | 'ventas'
   | 'estadio'
-  | 'empleados';
+  | 'empleados'
+  | 'instalaciones';
 
 export interface FinanceEntry {
   season: number;
@@ -132,7 +133,19 @@ export interface Team {
   penaltyTakers: string[];
   finance: TeamFinance;
   staff: StaffCounts;
+  /** Cantera: juveniles de 15 a 18 años (HTML 413-471, 3094-3178). Todos los equipos tienen. */
+  academy: Player[];
+  /** Nivel del centro juvenil, 0-5 (HTML 485, 3105). */
+  academyFacility: number;
+  /** Nivel del centro de entrenamiento, 0-5 (HTML 625-636). */
+  trainingFacility: number;
+  /** Ids de los jugadores en entrenamiento individual (solo el usuario entrena; HTML 637-641). */
+  training: string[];
+  /** Intensidad elegida por jugador; ausente = 'normal' (HTML 614-616). */
+  trainingIntensity: Record<string, TrainingIntensity>;
 }
+
+export type TrainingIntensity = 'suave' | 'normal' | 'intensa';
 
 /** Partido programado: ids de local y visitante. */
 export type Fixture = [homeId: string, awayId: string];
@@ -282,8 +295,11 @@ export interface SeasonObjective {
   text: string;
 }
 
-/** Cierre de temporada del usuario (HTML 1953-1956); el bloque 5 usa `objectiveMet` para la presión de la directiva. */
+/** Cierre de temporada del usuario (HTML 1953-1956); `objectiveMet` alimenta la presión de la directiva (HTML 1957-1962). */
 export interface SeasonRecord {
+  /** Club dirigido esa temporada. Ausente en partidas anteriores a la v6 (= el club vigente). */
+  teamId?: string;
+  teamName?: string;
   season: number;
   division: DivisionId;
   position: number;
@@ -296,6 +312,53 @@ export interface SeasonRecord {
 export interface Title {
   season: number;
   competition: CompetitionKey;
+  /** Club con el que se ganó. Ausente en partidas anteriores a la v6. */
+  teamId?: string;
+  teamName?: string;
+}
+
+/** Récord de carrera del DT (HTML 1277, 1354-1358): todos los partidos, de cualquier competición. Los títulos salen de `titles`. */
+export interface DtCareer {
+  matches: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  /** Temporadas completas dirigidas (HTML 2067-2068). */
+  seasons: number;
+}
+
+/** Paso por un club (historial por club dirigido). `toSeason` null = es el club actual. */
+export interface ClubTenure {
+  teamId: string;
+  teamName: string;
+  fromSeason: number;
+  toSeason: number | null;
+  matches: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  seasons: number;
+}
+
+/** Oferta de trabajo de otro club (HTML 1906-1942). */
+export interface JobOffer {
+  teamId: string;
+  season: number;
+}
+
+/** Perfil del DT (HTML 1272-1277, 3712-3827). */
+export interface DtProfile {
+  age: number;
+  origin: string;
+  career: DtCareer;
+  tenures: ClubTenure[];
+  jobOffers: JobOffer[];
+  /** Sin club: la directiva lo despidió y espera ofertas; `userTeamId` es null. */
+  unemployed: boolean;
+  /** Último despido. */
+  fired: { club: string; clubId: string; season: number; division: DivisionId } | null;
+  /** Marca de la fecha en que se tiraron las ofertas (idempotencia). */
+  offersKey: string | null;
 }
 
 export interface GameState {
@@ -305,6 +368,7 @@ export interface GameState {
   rngState: number;
   season: number;
   dtName: string;
+  dt: DtProfile;
   userTeamId: string | null;
   userDivision: DivisionId | null;
   divisions: Record<DivisionId, Division>;

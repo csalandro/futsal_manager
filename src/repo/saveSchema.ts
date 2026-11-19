@@ -3,9 +3,10 @@ import type { GameState } from '../domain/types';
 import { buildCalendar, indexAfterLeagueRounds } from '../engine/calendar';
 import { COMPETITIONS } from '../engine/config';
 import { createFinance, defaultStaff, sponsorFromRating } from '../engine/finance';
+import { defaultYouthFields, initialAcademy, newDtProfile } from '../engine/generate';
 import { emptyMarket } from '../engine/world';
 
-export const CURRENT_SAVE_VERSION = 5;
+export const CURRENT_SAVE_VERSION = 6;
 
 // Validación superficial: versión y forma general. El detalle lo garantiza TypeScript al escribir.
 const saveEnvelope = z
@@ -126,11 +127,60 @@ export function migrateV4toV5(s: Obj): Obj {
   };
 }
 
+/**
+ * v5 → v6: cantera, entrenamiento y DT. Cada equipo recibe una cantera generada de forma determinista a partir de su id
+ * (sin tocar el rng de la partida; los invitados de la Internacional no tienen), centros en nivel 0 y entrenamiento vacío.
+ * El perfil del DT arranca con el récord en cero (los partidos viejos no se pueden reconstruir) y, si ya tenía club, con un
+ * paso abierto por él; las temporadas cerradas salen del historial. Los títulos viejos no llevan club: se le atribuyen a ese.
+ */
+export function migrateV5toV6(s: Obj): Obj {
+  const divisions = { ...(s.divisions as Obj) };
+  const names = new Map<string, string>();
+  for (const id of ['A', 'B', 'C'] as const) {
+    const div = divisions[id] as Obj | undefined;
+    if (!div || !Array.isArray(div.teams)) continue;
+    divisions[id] = {
+      ...div,
+      teams: (div.teams as Obj[]).map((t) => {
+        names.set(t.id as string, t.name as string);
+        const y = defaultYouthFields([]);
+        return {
+          ...t,
+          academy: Array.isArray(t.academy) ? t.academy : initialAcademy(t.id as string, id),
+          academyFacility: t.academyFacility ?? y.academyFacility,
+          trainingFacility: t.trainingFacility ?? y.trainingFacility,
+          training: Array.isArray(t.training) ? t.training : y.training,
+          trainingIntensity: t.trainingIntensity ?? y.trainingIntensity,
+        };
+      }),
+    };
+  }
+  const guests = Object.fromEntries(
+    Object.entries((s.intlGuestTeams as Obj | undefined) ?? {}).map(([k, t]) => [k, { ...(t as Obj), ...defaultYouthFields([]) }]),
+  );
+  const history = Array.isArray(s.seasonHistory) ? (s.seasonHistory as { season: number }[]) : [];
+  const dt = newDtProfile(typeof s.seed === 'number' ? s.seed : 1);
+  dt.career.seasons = history.length;
+  const userId = s.userTeamId as string | null;
+  if (userId && names.has(userId)) {
+    dt.tenures.push({
+      teamId: userId,
+      teamName: names.get(userId) as string,
+      fromSeason: history[0]?.season ?? (s.season as number),
+      toSeason: null,
+      matches: 0, wins: 0, draws: 0, losses: 0,
+      seasons: history.length,
+    });
+  }
+  return { ...s, divisions, intlGuestTeams: guests, dt: s.dt ?? dt };
+}
+
 const MIGRATIONS: Record<number, (s: Obj) => Obj> = {
   1: migrateV1toV2,
   2: migrateV2toV3,
   3: migrateV3toV4,
   4: migrateV4toV5,
+  5: migrateV5toV6,
 };
 
 export function parseSave(raw: unknown): GameState | null {

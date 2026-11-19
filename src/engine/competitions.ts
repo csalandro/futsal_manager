@@ -85,7 +85,7 @@ function pairConsecutive(ids: string[], label?: string): Tie[] {
 function announceChampion(state: GameState, key: CompetitionKey, id: string, text: (name: string) => string, userText: string): void {
   const name = findTeam(state, id)?.name ?? '?';
   if (id === state.userTeamId) {
-    state.titles.push({ season: state.season, competition: key });
+    state.titles.push({ season: state.season, competition: key, teamId: id, teamName: name });
     pushNews(state, userText);
   } else {
     pushNews(state, text(name));
@@ -256,7 +256,12 @@ function buildPlayoff(state: GameState, div: DivisionId): void {
     d.promotedDirect = table[0].id;
     quals = table.slice(1, 1 + seeds).map((t) => t.id);
     if (d.promotedDirect === state.userTeamId) {
-      state.titles.push({ season: state.season, competition: div === 'B' ? 'divB' : 'divC' });
+      state.titles.push({
+        season: state.season,
+        competition: div === 'B' ? 'divB' : 'divC',
+        teamId: d.promotedDirect,
+        teamName: findTeam(state, d.promotedDirect)?.name,
+      });
       pushNews(state, `🎉 ¡Campeón de Primera ${div}! Ascenso directo a Primera ${div === 'B' ? 'A' : 'B'}.`);
     }
   } else {

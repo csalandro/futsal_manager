@@ -159,11 +159,11 @@ export const STAFF = {
   /** Cada fisio acelera 15% la recuperación del cansancio en el banco (HTML 781). */
   medicRecovery: 0.15,
   defs: [
-    { key: 'trainers', label: 'Preparador físico', max: 7, note: 'Cada uno entrena a 3 jugadores en simultáneo (el entrenamiento llega en un próximo bloque).' },
+    { key: 'trainers', label: 'Preparador físico', max: 7, note: 'Cada uno entrena a 3 jugadores en simultáneo (Plantel › Entrenamiento).' },
     { key: 'medics', label: 'Fisioterapeuta', max: 3, note: 'Acelera un 15% por fisio la recuperación del cansancio de los que no juegan.' },
     { key: 'doctors', label: 'Médico', max: 3, note: 'Acorta un 12% por médico el tiempo de recuperación de los lesionados.' },
-    { key: 'scouts', label: 'Ojeador', max: 3, note: 'Mejora la calidad de los juveniles de la cantera (llega en un próximo bloque).' },
-    { key: 'youthCoaches', label: 'Entrenador de juveniles', max: 2, note: 'Acelera el desarrollo de la cantera (llega en un próximo bloque).' },
+    { key: 'scouts', label: 'Ojeador', max: 3, note: 'Mejora la calidad de los juveniles que aparecen en la cantera.' },
+    { key: 'youthCoaches', label: 'Entrenador de juveniles', max: 2, note: 'Acelera el desarrollo de la cantera y ayuda a que lleguen antes a su potencial al debutar en primera.' },
   ],
 } as const;
 
@@ -295,4 +295,101 @@ export const COMPETITIONS = {
   objectivePlayoffB: 9,
   /** Máx. entradas del historial de campeones. */
   historyMax: 50,
+} as const;
+
+/**
+ * Cantera. Port de genAcademyPlayer / genAcademy / ageAcademy / computeDevelopmentScore (HTML 411-471) y renderYouth
+ * (HTML 3094-3178). Todos los equipos tienen cantera; en el original solo la del usuario envejece (acá, las de todos).
+ */
+export const YOUTH = {
+  /** Edades de la cantera: arranca con 3 por edad entre 15 y 18 (HTML 431-434). */
+  startAges: [15, 16, 17, 18],
+  perAge: 3,
+  /** Entran 3 de 15 años por temporada (HTML 470). */
+  intake: 3,
+  intakeAge: 15,
+  /** A esta edad se promueven obligatoriamente al primer equipo (HTML 450). */
+  promoteAge: 19,
+  /** Rating de entrada: rnd(28,40) + 2·ojeadores, tope 48 (HTML 419-420). */
+  rating: [28, 40],
+  ratingCap: 48,
+  /** Cada ojeador suma esto al rating y al potencial (HTML 420, 423). */
+  scoutBonus: 2,
+  /** Potencial = rating + rnd(14,28) + ojeadores·2 + centro·3 + bono por división, con techo por división (HTML 417-424). */
+  potentialGain: [14, 28],
+  facilityPotential: 3,
+  divBonus: { A: 18, B: 6, C: 0 },
+  divCap: { A: 92, B: 80, C: 68 },
+  /** Crecimiento anual = rnd(1,2) + piso(centro/2) + 1 con entrenador de juveniles (HTML 462-467). */
+  growth: [1, 2],
+  growthFacilityDiv: 2,
+  growthYouthCoach: 1,
+  /** Centro juvenil: niveles 0-5, costo = 6000·(nivel+1) (HTML 3105-3110). */
+  facilityMax: 5,
+  facilityCost: 6000,
+  /** Puntaje de desarrollo (HTML 436-440): 0,15 + 0,12·centro + 0,25 con entrenador de juveniles; define cuándo llega al pico. */
+  devBase: 0.15,
+  devPerFacility: 0.12,
+  devYouthCoach: 0.25,
+  /** Contrato al subir al primer equipo: rnd(2,4) (HTML 456, 3128). */
+  contractYears: [2, 4],
+  /** Venta de un juvenil: 50% de su valor (HTML 3118: Math.round(p.value*0.5)). */
+  sellShare: 0.5,
+} as const;
+
+/**
+ * Entrenamiento individual. Port de HTML 608-686 y 3278-3334. Solo entrena el usuario (el original no entrena a la
+ * computadora) y se procesa una vez por fecha de liga (HTML 1644, 2353).
+ */
+export const TRAINING = {
+  /** Cupos por preparador físico (HTML 608). */
+  slotsPerTrainer: 3,
+  /** Probabilidad de mejorar +1 por fecha según la edad (HTML 609-615): [edad máxima, probabilidad]. */
+  growthByAge: [
+    { maxAge: 20, chance: 0.14 },
+    { maxAge: 23, chance: 0.09 },
+    { maxAge: 27, chance: 0.05 },
+    { maxAge: 30, chance: 0.02 },
+  ],
+  intensities: {
+    suave: { mult: 0.6, fatigueCost: 0, injuryChance: 0.001, label: 'Suave', desc: 'Progreso más lento, pero no cansa ni arriesga lesión.' },
+    normal: { mult: 1.0, fatigueCost: 2, injuryChance: 0.003, label: 'Normal', desc: 'Un balance normal entre progreso, cansancio y riesgo.' },
+    intensa: { mult: 1.6, fatigueCost: 5, injuryChance: 0.007, label: 'Intensa', desc: 'Progresan más rápido, pero se cansan más y hay más riesgo de lesión.' },
+  },
+  /** Centro de entrenamiento: niveles 0-5 (HTML 631); +18% de progreso y -12% de lesiones por nivel, piso 0,4 (HTML 625-626). */
+  facilityMax: 5,
+  facilityCost: 7000,
+  facilityGrowthPerLevel: 0.18,
+  facilityInjuryPerLevel: 0.12,
+  facilityInjuryFloor: 0.4,
+} as const;
+
+/** Directiva y despido. Port de HTML 1957-1962 (racha de objetivos fallados) y 1999-2001 (despido a la 3ª). */
+export const BOARD = {
+  /** Temporadas seguidas sin cumplir el objetivo con el mismo club que provocan el despido (HTML 1999). */
+  firingStreak: 3,
+  /** Desde esta fecha se avisa si el objetivo se está escapando (no está en el original). */
+  midSeasonCheck: 17,
+} as const;
+
+/**
+ * Ofertas de trabajo. Port de ensureDtJobOffers (HTML 1906-1930): probabilidad por fecha = 5% + 3% por título + 8% · % de
+ * victorias; hasta 2 ofertas abiertas. El original sortea cualquier club; acá la reputación limita cuánto más arriba se
+ * puede mirar (no está en el original).
+ */
+export const JOB_OFFERS = {
+  maxOpen: 2,
+  baseChance: 0.05,
+  perTitle: 0.03,
+  perWinRate: 0.08,
+  /** Sin partidos dirigidos se asume el 40% de victorias (HTML 1915). */
+  defaultWinRate: 0.4,
+  /** Reputación (puntos = títulos·3 + %victorias·8) para mirar 1 y 2 divisiones más arriba. */
+  upOneLevel: 7,
+  upTwoLevels: 12,
+  /** Sin club: cantidad de ofertas al ser despedido y chance de que aparezca otra por cada espera. */
+  firedOffers: 3,
+  freeAgentChance: 0.5,
+  /** Máx. entradas del historial de clubes. */
+  tenuresMax: 30,
 } as const;

@@ -124,6 +124,13 @@ export function removeFromTeam(team: Team, playerId: string): void {
   team.squad = team.squad.filter((x) => x.id !== playerId);
   team.lineup = team.lineup.map((id) => (id === playerId ? null : id));
   team.penaltyTakers = team.penaltyTakers.filter((id) => id !== playerId);
+  dropFromTraining(team, playerId);
+}
+
+/** Saca a un jugador del entrenamiento individual (se fue, se retiró o bajó a la cantera). */
+export function dropFromTraining(team: Team, playerId: string): void {
+  team.training = team.training.filter((id) => id !== playerId);
+  delete team.trainingIntensity[playerId];
 }
 
 export function firePlayer(team: Team, playerId: string): ActionResult {

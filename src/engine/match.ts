@@ -100,7 +100,7 @@ export interface HalfResult {
   xg: ExpectedGoals;
 }
 
-function pickInjuryType(rng: Rng) {
+export function pickInjuryType(rng: Rng) {
   const total = INJURY.types.reduce((s, t) => s + t.weight, 0);
   let r = rng.next() * total;
   for (const t of INJURY.types) {

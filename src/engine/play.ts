@@ -6,6 +6,7 @@
 // Cada partido que juega un equipo descuenta una fecha de sanción o de lesión de los que ya la tenían.
 import type { DivisionId, GameState, MatchEvent, MatchResult, Team } from '../domain/types';
 import { DISCIPLINE, FORM } from './config';
+import { recordCareerMatch } from './dt';
 import { computeAttendance, medicalLevels, medicRecoveryMult, processClubFinances } from './finance';
 import { simulateMatch, type SimulatedMatch } from './match';
 import { isRivalMatch, recordH2H } from './rivalry';
@@ -220,6 +221,10 @@ export function playFixture(state: GameState, home: Team, away: Team, ctx: Fixtu
     );
   }
   if (!isGuestTeam(state, home.id) && !isGuestTeam(state, away.id)) recordH2H(state, home.id, away.id, r.hg, r.ag);
-  if (isUser) pushNews(state, userOutcomeText(state, home, away, r, ctx.label));
+  if (isUser) {
+    pushNews(state, userOutcomeText(state, home, away, r, ctx.label));
+    // Carrera del DT (HTML 1353-1359): cuentan los partidos de todas las competiciones.
+    recordCareerMatch(state, outcomeOf(r, home.id === userId ? 'home' : 'away'));
+  }
   return r;
 }

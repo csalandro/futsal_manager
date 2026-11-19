@@ -10,6 +10,8 @@ import { teamStrength } from '../engine/strength';
 import { useGame } from '../store/gameStore';
 import { Badge } from './Badge';
 import { FinanceAlert } from './Club';
+import { openJobOffers } from '../engine/dt';
+import { BoardAlert } from './Dt';
 import { pct } from './format';
 import { IconMarket, IconTable } from './icons';
 import { RivalDialog } from './RivalDialog';
@@ -67,6 +69,7 @@ export function Home() {
   const autoLineup = useGame((s) => s.autoLineup);
   const advancePreseason = useGame((s) => s.advancePreseason);
   const setTab = useGame((s) => s.setTab);
+  const openClub = useGame((s) => s.openClub);
   const [rivalOpen, setRivalOpen] = useState(false);
   const closeRival = useCallback(() => setRivalOpen(false), []);
   if (!game || !game.userDivision || !game.userTeamId) return null;
@@ -97,6 +100,15 @@ export function Home() {
     <div className="dash">
       <div className="span-2 stack">
         <FinanceAlert team={team} />
+        <BoardAlert game={game} />
+        {openJobOffers(game).length > 0 && (
+          <p className="alert ok" role="status">
+            📩 Tenés {openJobOffers(game).length} oferta{openJobOffers(game).length === 1 ? '' : 's'} de trabajo de otros clubes.{' '}
+            <button type="button" className="link" onClick={() => openClub('dt')}>
+              Ver ofertas
+            </button>
+          </p>
+        )}
         {sponsorPending && (
           <p className="alert ok" role="status">
             🤝 Hay ofertas de auspiciantes para esta temporada.{' '}

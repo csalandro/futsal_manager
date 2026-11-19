@@ -523,8 +523,8 @@ describe('migración de guardado 3 → 4', () => {
     raw.version = 3;
     for (const k of ['preseasonWeeksLeft', 'market', 'watchlist', 'h2h']) delete raw[k];
     const loaded = parseSave(raw)!;
-    expect(CURRENT_SAVE_VERSION).toBe(5);
-    expect(loaded.version).toBe(5);
+    expect(CURRENT_SAVE_VERSION).toBe(6);
+    expect(loaded.version).toBe(6);
     expect(loaded.preseasonWeeksLeft).toBe(0);
     expect(loaded.market).toMatchObject({ freeAgents: [], clubListings: [], offers: [], aiDone: [], refused: [] });
     expect(loaded.watchlist).toEqual([]);

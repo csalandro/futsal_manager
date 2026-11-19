@@ -4,7 +4,7 @@
 import type {
   DivisionId, FinanceConcept, GameState, Player, SponsorOffer, StaffCounts, StaffKey, Team, TeamFinance,
 } from '../domain/types';
-import { ECONOMY, STADIUM_NAME_MAX, STADIUM_UPGRADES, STAFF, type StadiumUpgradeKey } from './config';
+import { ECONOMY, STADIUM_NAME_MAX, STADIUM_UPGRADES, STAFF, TRAINING, type StadiumUpgradeKey } from './config';
 import { createRng, type Rng } from './rng';
 import type { ActionResult } from './squad';
 
@@ -321,6 +321,13 @@ export function fireStaff(team: Team, key: StaffKey): ActionResult {
   const min = key === 'trainers' ? STAFF.minTrainers : 0;
   if (team.staff[key] <= min) return { ok: false, reason: min ? 'El club necesita al menos un preparador físico.' : 'No tenés a nadie en ese puesto.' };
   team.staff[key]--;
+  // Sin preparadores de sobra, los que entrenaban de más quedan afuera (el original no lo contempla).
+  if (key === 'trainers') {
+    for (const id of team.training.slice(team.staff.trainers * TRAINING.slotsPerTrainer)) {
+      team.training = team.training.filter((x) => x !== id);
+      delete team.trainingIntensity[id];
+    }
+  }
   return { ok: true, cost: 0 };
 }
 

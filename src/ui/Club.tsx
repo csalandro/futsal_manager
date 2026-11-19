@@ -5,10 +5,11 @@ import {
   canSpend, hireCost, LOCKOUT_REASON, matchdayExpenses, squadWages, stadiumMaintenance, staffWages, upgradeCost,
 } from '../engine/finance';
 import { userTeam } from '../engine/season';
-import { useGame } from '../store/gameStore';
+import { useGame, type ClubView } from '../store/gameStore';
+import { Dt } from './Dt';
 import { money } from './format';
 
-type Sub = 'finanzas' | 'estadio' | 'empleados' | 'sponsor';
+type Sub = ClubView;
 
 const CONCEPT: Record<FinanceConcept, string> = {
   entradas: 'Entradas',
@@ -22,9 +23,10 @@ const CONCEPT: Record<FinanceConcept, string> = {
   ventas: 'Venta de jugadores',
   estadio: 'Ampliaciones del estadio',
   empleados: 'Contratación de empleados',
+  instalaciones: 'Centros de entrenamiento y juvenil',
 };
 const INCOME: FinanceConcept[] = ['entradas', 'sponsor', 'bono', 'ventas'];
-const EXPENSE: FinanceConcept[] = ['sueldos', 'staff', 'mantenimiento', 'contratos', 'fichajes', 'estadio', 'empleados'];
+const EXPENSE: FinanceConcept[] = ['sueldos', 'staff', 'mantenimiento', 'contratos', 'fichajes', 'estadio', 'empleados', 'instalaciones'];
 
 const signed = (n: number) => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`;
 
@@ -332,7 +334,8 @@ function Sponsor({ team, onResult }: { team: Team; onResult: (m: string | null) 
 
 export function Club() {
   const game = useGame((s) => s.game);
-  const [sub, setSub] = useState<Sub>('finanzas');
+  const sub = useGame((s) => s.clubView);
+  const setSub = useGame((s) => s.setClubView);
   const [notice, setNotice] = useState<string | null>(null);
   const team = game ? userTeam(game) : undefined;
   if (!game || !team) return null;
@@ -343,6 +346,7 @@ export function Club() {
     { id: 'estadio', label: 'Estadio' },
     { id: 'empleados', label: 'Empleados' },
     { id: 'sponsor', label: pending ? 'Sponsor •' : 'Sponsor' },
+    { id: 'dt', label: game.dt.jobOffers.length > 0 ? 'DT •' : 'DT' },
   ];
 
   return (
@@ -374,6 +378,7 @@ export function Club() {
       {sub === 'estadio' && <Estadio team={team} onResult={setNotice} />}
       {sub === 'empleados' && <Empleados team={team} onResult={setNotice} />}
       {sub === 'sponsor' && <Sponsor team={team} onResult={setNotice} />}
+      {sub === 'dt' && <Dt />}
     </div>
   );
 }

@@ -384,7 +384,7 @@ describe('migración de guardado 4 → 5', () => {
   it('a mitad de temporada (fecha 12): carga, las copas pasadas no se juegan y la temporada se completa', () => {
     const { raw } = v4At(41, 12);
     const loaded = parseSave(raw)!;
-    expect(loaded.version).toBe(5);
+    expect(loaded.version).toBe(6);
     expect(loaded.divisions.A.matchday).toBe(12);
     expect(loaded.calendar.some((st) => st.kind === 'cup')).toBe(false);
     expect(loaded.calendar[loaded.calendarIndex]).toEqual({ kind: 'league', round: 12 });
@@ -439,9 +439,9 @@ describe('varias temporadas seguidas', () => {
       for (const d of DIVS) expect(s.divisions[d].teams).toHaveLength(18);
       expect(new Set(allTeams(s).map((t) => t.name)).size).toBe(54);
       expect(s.cup!.ties).toHaveLength(COMPETITIONS.cupByes === 10 ? 22 : 0);
-      expect(s.userTeamId && allTeams(s).some((t) => t.id === s.userTeamId)).toBe(true);
+      expect(s.userTeamId === null ? s.dt.unemployed : allTeams(s).some((t) => t.id === s.userTeamId)).toBe(true); // el DT pudo ser despedido
     }
     expect(s.season).toBe(6);
-    expect(s.seasonHistory).toHaveLength(5);
+    expect(s.seasonHistory).toHaveLength(s.dt.unemployed ? 3 : 5); // despedido a la 3.ª: ya no hay club que cerrar
   });
 });

@@ -1,9 +1,9 @@
 // Generación de jugadores, plantillas, equipos y partida nueva. Port de genPlayer / genSquad / genOneTeam del HTML.
 import { CITY_NAMES, CLUB_WORDS, FIRST_NAMES, LAST_NAMES, ORIGINS, TEAM_COLORS, TRAITS } from '../data/names';
-import type { DivisionId, Foot, GameState, Player, Position, Team } from '../domain/types';
+import type { DivisionId, DtProfile, Foot, GameState, Player, Position, Team } from '../domain/types';
 import { CURRENT_SAVE_VERSION } from '../repo/saveSchema';
 import { buildCalendar } from './calendar';
-import { COMPETITIONS, ECONOMY, LEAGUE, MARKET } from './config';
+import { COMPETITIONS, ECONOMY, LEAGUE, MARKET, YOUTH } from './config';
 import { createFinance, defaultStaff } from './finance';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
@@ -65,6 +65,78 @@ export function generatePlayer(rng: Rng, pos: Position, baseLevel: number): Play
   };
 }
 
+const POSITIONS: Position[] = ['POR', 'CIE', 'ALA', 'PIV'];
+
+/** Juvenil de la cantera (HTML 415-430). El valor es el del rating actual; la venta cobra el 50% (YOUTH.sellShare). */
+export function generateAcademyPlayer(rng: Rng, scoutBonus: number, age: number, facility: number, division: DivisionId): Player {
+  const pos = rng.pick(POSITIONS);
+  const rating = Math.min(YOUTH.ratingCap, rng.int(YOUTH.rating[0], YOUTH.rating[1]) + scoutBonus * YOUTH.scoutBonus);
+  const potential = Math.min(
+    YOUTH.divCap[division],
+    rating + rng.int(YOUTH.potentialGain[0], YOUTH.potentialGain[1]) + scoutBonus * YOUTH.scoutBonus + facility * YOUTH.facilityPotential + YOUTH.divBonus[division],
+  );
+  return {
+    id: rng.id(),
+    name: generatePlayerName(rng),
+    pos,
+    rating,
+    potential,
+    age,
+    form: 0,
+    fatigue: 0,
+    value: playerValue(rating),
+    contractYears: rng.int(YOUTH.contractYears[0], YOUTH.contractYears[1]),
+    foot: pickFoot(rng),
+    number: rng.int(1, 99),
+    origin: rng.pick(ORIGINS),
+    trait: rng.pick(TRAITS[pos]),
+    injuryProneness: Math.max(0.5, Math.min(1.8, 0.5 + rng.next() * 1.3)),
+    peakStart: null,
+    peakEnd: 30,
+    stats: { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0 },
+    injury: null,
+    suspension: 0,
+    yellowAccum: 0,
+  };
+}
+
+/** Cantera inicial: 3 juveniles por edad de 15 a 18 (HTML 431-435). */
+export function generateAcademy(rng: Rng, scoutBonus: number, division: DivisionId): Player[] {
+  const out: Player[] = [];
+  for (const age of YOUTH.startAges) for (let i = 0; i < YOUTH.perAge; i++) out.push(generateAcademyPlayer(rng, scoutBonus, age, 0, division));
+  return out;
+}
+
+/**
+ * Cantera de un equipo recién creado (o de una partida migrada), derivada del id del equipo: no consume el rng de la
+ * partida (así no cambia nada de lo ya generado) y es determinista.
+ */
+export function initialAcademy(teamId: string, division: DivisionId): Player[] {
+  let h = 2166136261;
+  for (let i = 0; i < teamId.length; i++) h = Math.imul(h ^ teamId.charCodeAt(i), 16777619);
+  return generateAcademy(createRng((h ^ 0x9e3779b9) >>> 0), 0, division);
+}
+
+/** Campos de instalaciones y entrenamiento de un equipo nuevo. */
+export function defaultYouthFields(academy: Player[]): Pick<Team, 'academy' | 'academyFacility' | 'trainingFacility' | 'training' | 'trainingIntensity'> {
+  return { academy, academyFacility: 0, trainingFacility: 0, training: [], trainingIntensity: {} };
+}
+
+/** Perfil del DT al empezar (HTML 1272-1277); el origen sale de la semilla, sin tocar el rng de la partida. */
+export function newDtProfile(seed: number): DtProfile {
+  const rng = createRng((seed ^ 0x51ed270b) >>> 0);
+  return {
+    age: 45,
+    origin: rng.pick(ORIGINS),
+    career: { matches: 0, wins: 0, draws: 0, losses: 0, seasons: 0 },
+    tenures: [],
+    jobOffers: [],
+    unemployed: false,
+    fired: null,
+    offersKey: null,
+  };
+}
+
 function generateSquad(rng: Rng, baseLevel: number): Player[] {
   const squad: Player[] = [generatePlayer(rng, 'POR', baseLevel), generatePlayer(rng, 'POR', baseLevel - 6)];
   for (const pos of ['CIE', 'ALA', 'PIV'] as const) {
@@ -99,8 +171,9 @@ export function generateTeam(rng: Rng, usedNames: Set<string>, tier: DivisionId,
   const baseLevel = rng.int(range[0], range[1]);
   const squad = generateSquad(rng, baseLevel);
   dedupeNumbers(rng, squad);
+  const id = rng.id();
   return {
-    id: rng.id(),
+    id,
     name,
     color: TEAM_COLORS[colorIdx % TEAM_COLORS.length],
     squad,
@@ -114,6 +187,7 @@ export function generateTeam(rng: Rng, usedNames: Set<string>, tier: DivisionId,
     // HTML 483-485: sponsor de origen rnd(400,1800), 1 preparador, entrada según la división.
     finance: createFinance(tier, rng.int(ECONOMY.startSponsor.min, ECONOMY.startSponsor.max)),
     staff: defaultStaff(),
+    ...defaultYouthFields(initialAcademy(id, tier)),
   };
 }
 
@@ -141,6 +215,7 @@ export function generateGuestTeam(rng: Rng, name: string, colorIdx: number): Tea
     penaltyTakers: [],
     finance,
     staff: defaultStaff(),
+    ...defaultYouthFields([]), // HTML 964: los invitados no tienen cantera
   };
 }
 
@@ -161,6 +236,7 @@ export function createNewGame(seed: number, dtName: string): GameState {
     rngState: rng.state(),
     season: 1,
     dtName,
+    dt: newDtProfile(seed),
     userTeamId: null,
     userDivision: null,
     divisions,

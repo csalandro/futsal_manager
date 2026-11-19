@@ -7,6 +7,8 @@ import { fireBlocker, renewCost, severanceCost } from '../engine/squad';
 import { useGame } from '../store/gameStore';
 import { FinanceAlert } from './Club';
 import { money, ratingClass } from './format';
+import { Training } from './Training';
+import { Youth } from './Youth';
 
 type SortKey = 'number' | 'name' | 'pos' | 'age' | 'rating' | 'potential' | 'form' | 'fatigue' | 'contractYears' | 'gp' | 'goals' | 'assists';
 
@@ -42,7 +44,7 @@ function sortValue(p: Player, key: SortKey): number | string {
   }
 }
 
-export function Squad() {
+function Plantilla() {
   const game = useGame((s) => s.game);
   const renew = useGame((s) => s.renewContract);
   const fire = useGame((s) => s.firePlayer);
@@ -243,5 +245,31 @@ export function Squad() {
         </table>
       </div>
     </section>
+  );
+}
+
+type Sub = 'plantel' | 'entrenamiento' | 'cantera';
+const SUBS: { id: Sub; label: string }[] = [
+  { id: 'plantel', label: 'Plantel' },
+  { id: 'entrenamiento', label: 'Entrenamiento' },
+  { id: 'cantera', label: 'Cantera' },
+];
+
+/** Plantel con subvistas (así la barra inferior se queda en 7 pestañas). */
+export function Squad() {
+  const [sub, setSub] = useState<Sub>('plantel');
+  return (
+    <div className="stack">
+      <div className="segmented" role="tablist" aria-label="Secciones del plantel">
+        {SUBS.map((x) => (
+          <button key={x.id} type="button" role="tab" aria-selected={sub === x.id} className={sub === x.id ? 'on' : ''} onClick={() => setSub(x.id)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      {sub === 'plantel' && <Plantilla />}
+      {sub === 'entrenamiento' && <Training />}
+      {sub === 'cantera' && <Youth />}
+    </div>
   );
 }

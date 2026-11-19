@@ -12,6 +12,7 @@ import { Market } from './Market';
 import { Squad } from './Squad';
 import { Table } from './Table';
 import { Tactics } from './Tactics';
+import { Unemployed } from './Unemployed';
 
 const TABS: { id: Tab; label: string; short: string; icon: (p: { size?: number }) => React.ReactNode }[] = [
   { id: 'home', label: 'Visión general', short: 'Inicio', icon: IconHome },
@@ -37,6 +38,7 @@ export function Game() {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
 
+  if (game?.dt.unemployed) return <Unemployed />;
   if (!game || !game.userDivision) return null;
   const team = userTeam(game);
   if (!team) return null;

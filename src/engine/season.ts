@@ -3,17 +3,20 @@
 import type { CalendarStep, DivisionId, GameState, MatchResult, Player, Team } from '../domain/types';
 import { buildCalendar, stepLabel } from './calendar';
 import { buildCup, buildIntlCup, ensureCompetitions, runStep, userStepFixture } from './competitions';
-import { COMPETITIONS, MARKET, RETIREMENT, SQUAD } from './config';
+import { BOARD, COMPETITIONS, MARKET, RETIREMENT, SQUAD } from './config';
+import { boardPressure, dismissUser, objectiveOutlook, recordCareerSeason, rollFreeAgentOffers, rollJobOffers, shouldFire } from './dt';
 import { defaultTicketPrice, ensureSponsorOffers, generateSponsorOffers, pickBestOffer, signSponsor } from './finance';
 import { generatePlayer, generateTeam, playerValue } from './generate';
-import { tickMarket } from './market';
+import { advancePreseason, isPreseason, tickMarket } from './market';
 import type { SimulatedMatch } from './match';
 import { computeSeasonObjective, evaluateObjective } from './objective';
 import { updateMorale } from './play';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
-import { bestAvailableFive, canAddPlayer } from './squad';
+import { bestAvailableFive } from './squad';
 import { emptyRecord, standings } from './standings';
+import { processTraining } from './training';
+import { ageAcademy } from './youth';
 import { allTeams, DIVISIONS, findTeam, pushNews, userTeam } from './world';
 
 // Estas consultas viven en world.ts (para evitar ciclos); se reexportan porque el resto de la app las importa de acá.
@@ -64,6 +67,7 @@ export function playNextStep(state: GameState, userSim?: SimulatedMatch): MatchR
   let step = currentStep(state);
   if (!step) return results;
   results.push(...runStep(state, step, rng, userSim));
+  if (step.kind === 'league') afterLeagueRound(state, rng);
   state.calendarIndex++;
   for (step = currentStep(state); step && step.kind !== 'league' && !userStepFixture(state, step); step = currentStep(state)) {
     runStep(state, step, rng);
@@ -72,6 +76,36 @@ export function playNextStep(state: GameState, userSim?: SimulatedMatch): MatchR
   state.rngState = rng.state();
   tickMarket(state); // ventanas de pases: mercado de la computadora, ofertas y listas (HTML 839-846); el día es la fecha de liga
   return results;
+}
+
+/**
+ * Lo que pasa en cada fecha de liga además de los partidos: entrenamiento individual del usuario (HTML 1644, 2353), posibles
+ * ofertas de trabajo (HTML 1906-1930) y el aviso de la directiva a mitad de temporada si el objetivo se escapa.
+ */
+function afterLeagueRound(state: GameState, rng: Rng): void {
+  const me = userTeam(state);
+  if (!me) return;
+  processTraining(state, me, rng);
+  rollJobOffers(state, rng);
+  const div = state.userDivision && state.divisions[state.userDivision];
+  if (div && div.matchday === BOARD.midSeasonCheck && objectiveOutlook(state) === 'risk') {
+    pushNews(state, `📉 La directiva está preocupada: el objetivo se te está escapando (${standings(div.teams).findIndex((t) => t.id === me.id) + 1}° en la tabla).`);
+  }
+}
+
+/**
+ * Sin club: deja pasar el tiempo (una semana de pretemporada, un paso del calendario o el cambio de temporada) y puede
+ * llegar alguna oferta nueva; si no queda ninguna, siempre llega una.
+ */
+export function waitForOffers(state: GameState): boolean {
+  if (!state.dt.unemployed) return false;
+  if (isSeasonOver(state)) startNewSeason(state);
+  else if (isPreseason(state)) advancePreseason(state);
+  else playNextStep(state);
+  const rng = createRng(state.rngState);
+  rollFreeAgentOffers(state, rng);
+  state.rngState = rng.state();
+  return true;
 }
 
 /** Avanza hasta haber jugado una fecha de liga (con los pasos de copa que la preceden, si los hay). */
@@ -134,14 +168,12 @@ function youngster(team: Team, pos: Player['pos'], rng: Rng): Player {
 }
 
 function rollTeamOver(state: GameState, team: Team, isUser: boolean, rng: Rng): void {
-  const retiredPos: Player['pos'][] = [];
   for (const p of team.squad) {
     progressPlayer(p, rng);
     p.contractYears = Math.max(0, p.contractYears - 1);
   }
   team.squad = team.squad.filter((p) => {
     if (retires(p.age, rng)) {
-      retiredPos.push(p.pos);
       if (isUser) pushNews(state, `👋 ${p.name} se retiró del fútbol.`);
       return false;
     }
@@ -156,14 +188,22 @@ function rollTeamOver(state: GameState, team: Team, isUser: boolean, rng: Rng): 
     }
     return true;
   });
+  // Los que se fueron dejan de entrenar.
+  const left = new Set(team.squad.map((p) => p.id));
+  team.training = team.training.filter((id) => left.has(id));
+  for (const id of Object.keys(team.trainingIntensity)) if (!left.has(id)) delete team.trainingIntensity[id];
+  // Cantera (HTML 2045): promoción obligatoria a los 19 y tres chicos nuevos. Reemplaza a la reposición de retirados.
+  const promoted = ageAcademy(state, team, isUser, rng);
+  if (isUser && promoted.length > 0) {
+    pushNews(state, `La cantera aportó ${promoted.length} jugador${promoted.length === 1 ? '' : 'es'} al plantel: ${promoted.map((p) => p.name).join(', ')}.`);
+  }
   const before = team.squad.length;
-  for (const pos of retiredPos) if (canAddPlayer(team)) team.squad.push(youngster(team, pos, rng));
   if (!team.squad.some((p) => p.pos === 'POR')) team.squad.push(youngster(team, 'POR', rng));
   while (team.squad.length < SQUAD.minSeason) {
     team.squad.push(youngster(team, rng.pick(['CIE', 'ALA', 'PIV'] as const), rng));
   }
   if (isUser && team.squad.length > before) {
-    pushNews(state, `Las juveniles aportaron ${team.squad.length - before} jugador(es) al plantel.`);
+    pushNews(state, `Se sumaron ${team.squad.length - before} jugador(es) del club para completar el plantel mínimo.`);
   }
   const ids = new Set(team.squad.map((p) => p.id));
   team.penaltyTakers = team.penaltyTakers.filter((id) => ids.has(id));
@@ -188,6 +228,8 @@ function closeSeasonForUser(state: GameState): void {
   else if (div !== 'A' && d.playoff?.winner === me.id) outcome = `🎉 Ascenso vía playoff a Primera ${upper}`;
   else if (div !== 'C' && d.relegated?.includes(me.id)) outcome = `⬇️ Descenso a Primera ${div === 'A' ? 'B' : 'C'}`;
   state.seasonHistory.push({
+    teamId: me.id,
+    teamName: me.name,
     season: state.season,
     division: div,
     position,
@@ -196,6 +238,7 @@ function closeSeasonForUser(state: GameState): void {
     objectiveMet: evaluateObjective(state.objective, me.id, d, position),
   });
   if (state.seasonHistory.length > COMPETITIONS.historyMax) state.seasonHistory.shift();
+  recordCareerSeason(state);
 }
 
 export function startNewSeason(state: GameState): void {
@@ -208,6 +251,8 @@ export function startNewSeason(state: GameState): void {
   const D = state.divisions;
 
   closeSeasonForUser(state);
+  const dismissed = shouldFire(state); // racha de objetivos fallados con este club (HTML 1999)
+  state.dt.age = Math.min(80, state.dt.age + 1);
   state.lastSeasonAStandings = standings(D.A.teams).map((t) => t.id); // HTML 1963: define los byes de la copa
 
   // Ascensos y descensos (HTML 1966-1997): A y B bajan 2; el campeón de B y C asciende directo y el ganador de su
@@ -256,6 +301,8 @@ export function startNewSeason(state: GameState): void {
     div.relegated = null;
     if (userId && div.teams.some((t) => t.id === userId)) state.userDivision = d;
   }
+  // El DT queda libre: el club pasa a la computadora (firma sponsor abajo) y el usuario elige entre ofertas.
+  if (dismissed) dismissUser(state, rng);
 
   state.season++;
   state.preseasonWeeksLeft = MARKET.preseasonWeeks; // HTML 2066
@@ -265,7 +312,7 @@ export function startNewSeason(state: GameState): void {
     const q = state.intlCupQualifiedNextSeason as string;
     pushNews(
       state,
-      q === userId
+      q === state.userTeamId
         ? '🌎 Clasificaste a la Copa Internacional: 12 equipos, 3 grupos de 4, se juega durante esta temporada.'
         : `🌎 ${findTeam(state, q)?.name ?? 'El campeón de A'} juega la Copa Internacional (12 equipos, 3 grupos de 4) esta temporada.`,
     );
@@ -280,13 +327,13 @@ export function startNewSeason(state: GameState): void {
   // Sponsors de la nueva temporada: la computadora elige sola (la que más plata deja); el usuario elige en Club.
   for (const d of DIVISIONS) {
     for (const t of D[d].teams) {
-      if (t.id === userId) continue;
+      if (t.id === state.userTeamId) continue;
       signSponsor(t, pickBestOffer(generateSponsorOffers(t, rng), D[d].schedule.length), state.season);
     }
   }
   ensureSponsorOffers(state, rng);
   if (state.sponsorOffers?.season === state.season) pushNews(state, '🤝 Hay ofertas de auspiciantes para esta temporada: elegí una en Club.');
-  if (userId && oldDivision && state.userDivision !== oldDivision) {
+  if (state.userTeamId && oldDivision && state.userDivision !== oldDivision) {
     const up = DIVISIONS.indexOf(state.userDivision!) < DIVISIONS.indexOf(oldDivision);
     pushNews(
       state,
@@ -296,6 +343,8 @@ export function startNewSeason(state: GameState): void {
     );
   }
   if (state.objective) pushNews(state, `🎯 Objetivo de la temporada: ${state.objective.text}`);
+  const pressure = boardPressure(state);
+  if (pressure.text) pushNews(state, pressure.text);
   state.rngState = rng.state();
   tickMarket(state);
 }
