@@ -29,4 +29,6 @@ ENV PORT=3000
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
   CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
-CMD ["sh", "-c", "npx prisma migrate deploy && exec node --import tsx server/index.ts --prod"]
+# Si las migraciones no terminan en 120 s (típico: DATABASE_URL apunta a un pooler en modo
+# "transaction", como el puerto 6543 de Supabase) se corta con un mensaje claro en vez de colgarse.
+CMD ["sh", "-c", "timeout 120 npx prisma migrate deploy || { echo 'ERROR: las migraciones fallaron o tardaron más de 120 s. Revisá DATABASE_URL (en Supabase usá el Session pooler, puerto 5432).'; exit 1; }; exec node --import tsx server/index.ts --prod"]

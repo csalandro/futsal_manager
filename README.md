@@ -40,12 +40,29 @@ Otros comandos:
 | `npm run db:studio` | Explorar la base con Prisma Studio |
 | `npm run db:down` | Apagar Postgres (los datos quedan en el volumen `pgdata`) |
 
+## Base remota (Supabase u otra)
+
+Para crear las tablas y el usuario admin en la base de producción desde tu máquina:
+
+```bash
+cp .env.production.example .env.production   # completá DATABASE_URL, ADMIN_USERNAME y ADMIN_PASSWORD
+npm run db:remote                              # muestra la base destino, pide confirmación, migra y crea el admin
+```
+
+`.env.production` no se versiona y no se mezcla con tu `.env` local. En Supabase usá la URI del **Session pooler** (puerto 5432). Se puede volver a correr sin problema: solo aplica migraciones pendientes y actualiza la contraseña del admin. Opciones: `--env <archivo>` y `--yes` (sin confirmación).
+
+## Desplegar en Render (Docker)
+
+1. **New → Web Service** → el repo → rama `main` → la misma región que la base → **Language: Docker**. Health Check Path: `/api/health`.
+2. Variables: `DATABASE_URL` (Session pooler de Supabase), `JWT_SECRET`, `COOKIE_SECURE=true`, `TRUST_PROXY=1`, `DB_POOL_MAX=5`.
+3. Cada deploy aplica las migraciones al arrancar. El admin se crea una vez con `npm run db:remote`.
+
 ## Desplegar en Vercel
 
 Un solo proyecto de Vercel sirve las dos partes: el frontend (`dist/`) desde su CDN y la API como una función serverless (`api/index.ts`, que reutiliza `server/app.ts`). Al ser el mismo dominio, la cookie de sesión funciona sin CORS. El navegador nunca se conecta a la base: navegador → `/api` → Prisma → Postgres.
 
 1. Creá un Postgres en la nube (Neon, Supabase o Vercel Postgres). Tu Docker local no es accesible desde Vercel.
-2. Aplicá las migraciones contra esa base desde tu máquina, con la URL **directa** (sin pooler): `DATABASE_URL=<url directa> npm run db:deploy`, y después `npm run db:seed` con `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+2. Prepará la base desde tu máquina (ver **Base remota** abajo): `npm run db:remote`.
 3. Importá el repo en Vercel; `vercel.json` ya define el build y las rutas.
 4. Variables de entorno en Vercel: `DATABASE_URL` (la URL **con pooler**), `JWT_SECRET`, `COOKIE_SECURE=true`, `TRUST_PROXY=1`, `DB_POOL_MAX=3`.
 

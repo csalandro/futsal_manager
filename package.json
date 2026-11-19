@@ -21,6 +21,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "db:remote": "node scripts/setup-remote-db.mjs",
     "docker:up": "docker compose up -d --build",
     "docker:seed": "docker compose exec app npx prisma db seed",
     "docker:logs": "docker compose logs -f app",
