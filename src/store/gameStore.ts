@@ -6,8 +6,9 @@ import { simulateMatch, type SimulatedMatch } from '../engine/match';
 import { createRng, randomSeed } from '../engine/rng';
 import { isSeasonOver, playMatchday, startNewSeason, userNextFixture, userTeam } from '../engine/season';
 import { repository, type SaveSummary } from '../repo';
+import { onLogout } from './authStore';
 
-export type Screen = 'menu' | 'pickTeam' | 'game';
+export type Screen = 'menu' | 'pickTeam' | 'game' | 'admin';
 export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture';
 
 export interface LiveMatch {
@@ -35,6 +36,9 @@ interface Store {
   persist(): Promise<void>;
   setTab(tab: Tab): void;
   backToMenu(): void;
+  openAdmin(): void;
+  /** Vuelve al estado inicial (al cerrar sesión). */
+  reset(): void;
 
   /** Simula el partido del usuario y abre el relato en vivo (el resultado ya está decidido). */
   startUserMatch(): void;
@@ -47,6 +51,9 @@ interface Store {
   setLineupSlot(index: number, playerId: string | null): void;
   setTactic(patch: Partial<Tactic>): void;
 }
+
+let saving: Promise<void> | null = null;
+let saveQueued = false;
 
 export const useGame = create<Store>()(
   immer((set, get) => ({
@@ -103,17 +110,29 @@ export const useGame = create<Store>()(
     },
 
     async persist() {
-      const { game, slot } = get();
-      if (!game) return;
+      // Un solo guardado en vuelo: si llegan pedidos mientras tanto, al terminar se guarda
+      // una vez más con el estado más reciente. Así un PUT viejo nunca pisa a uno nuevo.
+      if (!get().game) return;
+      saveQueued = true;
+      if (saving) return saving;
       set({ busy: true });
-      try {
-        await repository.save(slot, game);
-        set({ error: null });
-      } catch (e) {
-        set({ error: `No se pudo guardar: ${e instanceof Error ? e.message : String(e)}` });
-      } finally {
+      saving = (async () => {
+        while (saveQueued) {
+          saveQueued = false;
+          const { game, slot } = get();
+          if (!game) break;
+          try {
+            await repository.save(slot, game);
+            set({ error: null });
+          } catch (e) {
+            set({ error: `No se pudo guardar: ${e instanceof Error ? e.message : String(e)}` });
+          }
+        }
+      })().finally(() => {
+        saving = null;
         set({ busy: false });
-      }
+      });
+      return saving;
     },
 
     setTab(tab) {
@@ -121,8 +140,16 @@ export const useGame = create<Store>()(
     },
 
     backToMenu() {
-      set({ screen: 'menu', live: null });
+      set({ screen: 'menu', live: null, error: null });
       void get().refreshSaves();
+    },
+
+    openAdmin() {
+      set({ screen: 'admin', live: null, error: null });
+    },
+
+    reset() {
+      set({ screen: 'menu', tab: 'home', game: null, slot: 1, saves: [], busy: false, error: null, live: null });
     },
 
     startUserMatch() {
@@ -181,3 +208,5 @@ export const useGame = create<Store>()(
     },
   })),
 );
+
+onLogout(() => useGame.getState().reset());

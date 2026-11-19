@@ -5,7 +5,7 @@ import { useGame } from '../store/gameStore';
 import { Badge } from './Badge';
 
 const SPEEDS = [1, 2, 4] as const;
-const ICON: Record<string, string> = { goal: '⚽', chance: '•', save: '🧤', foul: '⚠', build: '·' };
+const ICON: Record<string, string> = { goal: '⚽', chance: '◎', save: '🧤', foul: '!', build: '·' };
 
 export function LiveMatch() {
   const live = useGame((s) => s.live);
@@ -16,13 +16,16 @@ export function LiveMatch() {
   const [minute, setMinute] = useState(0);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const feedRef = useRef<HTMLUListElement>(null);
+  const feedRef = useRef<HTMLOListElement>(null);
+  const continueRef = useRef<HTMLButtonElement>(null);
 
   const total = MATCH.minutes;
   const finished = minute >= total;
 
   useEffect(() => {
     dialogRef.current?.focus();
+    document.body.classList.add('no-scroll');
+    return () => document.body.classList.remove('no-scroll');
   }, []);
 
   useEffect(() => {
@@ -31,21 +34,17 @@ export function LiveMatch() {
     return () => window.clearInterval(id);
   }, [speed, finished, total]);
 
-  const events = useMemo(
-    () => (live ? [...live.sim.events].sort((a, b) => a.minute - b.minute) : []),
-    [live],
-  );
+  const events = useMemo(() => (live ? [...live.sim.events].sort((a, b) => a.minute - b.minute) : []), [live]);
   const visible = events.filter((e) => e.minute <= minute);
-  const hg = visible.filter((e) => e.type === 'goal' && e.side === 'home').length;
-  const ag = visible.filter((e) => e.type === 'goal' && e.side === 'away').length;
+  const count = (side: 'home' | 'away', ...types: string[]) => visible.filter((e) => e.side === side && types.includes(e.type)).length;
+  const hg = count('home', 'goal');
+  const ag = count('away', 'goal');
 
+  // Lo más nuevo arriba: el feed se lee de arriba hacia abajo sin tener que scrollear.
   useEffect(() => {
-    const el = feedRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    feedRef.current?.scrollTo({ top: 0 });
   }, [visible.length]);
 
-  // Al llegar al final dejamos el foco en el botón de continuar.
-  const continueRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (finished) continueRef.current?.focus();
   }, [finished]);
@@ -53,80 +52,114 @@ export function LiveMatch() {
   if (!live || !game) return null;
   const home = findTeam(game, live.sim.result.homeId);
   const away = findTeam(game, live.sim.result.awayId);
+  const homeColor = home?.color ?? '#556';
+  const awayColor = away?.color ?? '#556';
+
+  const stats: { label: string; h: number; a: number }[] = [
+    { label: 'Remates', h: count('home', 'goal', 'chance', 'save'), a: count('away', 'goal', 'chance', 'save') },
+    { label: 'Al arco', h: count('home', 'goal', 'save'), a: count('away', 'goal', 'save') },
+    { label: 'Faltas', h: count('home', 'foul'), a: count('away', 'foul') },
+    {
+      label: 'Tarjetas',
+      h: visible.filter((e) => e.side === 'home' && e.card).length,
+      a: visible.filter((e) => e.side === 'away' && e.card).length,
+    },
+  ];
 
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="live-title" ref={dialogRef} tabIndex={-1}>
+    <div className="match-screen" role="dialog" aria-modal="true" aria-labelledby="live-title" ref={dialogRef} tabIndex={-1}>
       <h2 id="live-title" className="sr-only">
         Partido en vivo: {live.homeName} contra {live.awayName}
       </h2>
-      <div className="scoreboard">
-        <div className="sb-teams">
-          <div className="sb-team">
-            <Badge name={live.homeName} color={home?.color ?? '#555'} size="lg" />
-            <span>{live.homeName}</span>
-          </div>
+
+      <header className="scorebar" style={{ '--home': homeColor, '--away': awayColor } as React.CSSProperties}>
+        <div className="sb-side home">
+          <Badge name={live.homeName} color={homeColor} size="lg" />
+          <span className="sb-name">{live.homeName}</span>
+        </div>
+        <div className="sb-center">
           <div className="sb-score" aria-label={`Marcador ${hg} a ${ag}`}>
-            {hg} - {ag}
+            <span>{hg}</span>
+            <i>-</i>
+            <span>{ag}</span>
           </div>
-          <div className="sb-team">
-            <Badge name={live.awayName} color={away?.color ?? '#555'} size="lg" />
-            <span>{live.awayName}</span>
+          <div className={`sb-clock${finished ? ' ft' : ''}`}>
+            {finished ? 'FINAL' : `${String(minute).padStart(2, '0')}'`}
           </div>
         </div>
-        <div className="sb-minute">
-          {finished ? (
-            'Final del partido'
-          ) : (
-            <>
-              <span className="sb-clock-dot" aria-hidden="true" />
-              {String(minute).padStart(2, '0')}:00 / {total}:00
-            </>
-          )}
+        <div className="sb-side away">
+          <span className="sb-name">{live.awayName}</span>
+          <Badge name={live.awayName} color={awayColor} size="lg" />
         </div>
+        <div className="sb-progress" aria-hidden="true">
+          <i style={{ width: `${(minute / total) * 100}%` }} />
+        </div>
+      </header>
+
+      <div className="match-body">
+        <section className="panel match-feed">
+          <header className="panel-head">
+            <h2>Relato</h2>
+          </header>
+          <ol className="feed" ref={feedRef} aria-live="polite" aria-label="Relato del partido">
+            {visible.length === 0 && <li className="empty">Arranca el partido…</li>}
+            {[...visible].reverse().map((e, i) => (
+              <li key={visible.length - i} className={`feed-item ${e.type} ${e.side}`}>
+                <span className="feed-min">{e.minute}'</span>
+                <span className="feed-ico" aria-hidden="true">
+                  {e.card === 'red' ? '🟥' : e.card === 'yellow' ? '🟨' : ICON[e.type]}
+                </span>
+                <span className="feed-text">{e.text}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="panel match-stats">
+          <header className="panel-head">
+            <h2>Estadísticas</h2>
+          </header>
+          <ul className="stat-rows">
+            {stats.map((s) => {
+              const sum = s.h + s.a || 1;
+              return (
+                <li key={s.label}>
+                  <div className="stat-line">
+                    <b>{s.h}</b>
+                    <span>{s.label}</span>
+                    <b>{s.a}</b>
+                  </div>
+                  <div className="stat-bar" style={{ '--home': homeColor, '--away': awayColor } as React.CSSProperties}>
+                    <i className="h" style={{ flexGrow: s.h / sum }} />
+                    <i className="a" style={{ flexGrow: s.a / sum }} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       </div>
 
-      <ul className="feed" ref={feedRef} aria-live="polite" aria-label="Relato del partido">
-        {visible.length === 0 && <li className="empty">Arranca el partido…</li>}
-        {visible.map((e, i) => (
-          <li key={i} className={`feed-item ${e.type}`}>
-            <span className="feed-min">{e.minute}'</span>
-            <span className="feed-ico" aria-hidden="true">
-              {ICON[e.type]}
-            </span>
-            <span className="feed-text">
-              {e.card === 'red' ? 'Roja. ' : e.card === 'yellow' ? 'Amarilla. ' : ''}
-              {e.text}
-            </span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="match-actions">
+      <footer className="match-controls">
         {finished ? (
-          <button type="button" className="btn" ref={continueRef} disabled={busy} onClick={() => void finishUserMatch()}>
+          <button type="button" className="btn continue" ref={continueRef} disabled={busy} onClick={() => void finishUserMatch()}>
             Continuar
           </button>
         ) : (
-          <div className="row2">
-            <div className="speed" role="group" aria-label="Velocidad">
+          <>
+            <div className="segmented" role="group" aria-label="Velocidad">
               {SPEEDS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`btn small ${s === speed ? '' : 'secondary'}`}
-                  aria-pressed={s === speed}
-                  onClick={() => setSpeed(s)}
-                >
+                <button key={s} type="button" className={s === speed ? 'on' : ''} aria-pressed={s === speed} onClick={() => setSpeed(s)}>
                   x{s}
                 </button>
               ))}
             </div>
-            <button type="button" className="btn ghost small" onClick={() => setMinute(total)}>
-              Saltar al final
+            <button type="button" className="btn ghost" onClick={() => setMinute(total)}>
+              Ir al final
             </button>
-          </div>
+          </>
         )}
-      </div>
+      </footer>
     </div>
   );
 }

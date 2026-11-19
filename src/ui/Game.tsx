@@ -1,18 +1,20 @@
-import { userTeam } from '../engine/season';
+import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
+import { useAuth } from '../store/authStore';
 import { useGame, type Tab } from '../store/gameStore';
 import { Badge } from './Badge';
 import { Fixture } from './Fixture';
 import { Home } from './Home';
+import { IconArrow, IconCalendar, IconHome, IconLogout, IconSave, IconSquad, IconTable, IconTactics } from './icons';
 import { Squad } from './Squad';
 import { Table } from './Table';
 import { Tactics } from './Tactics';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'home', label: 'Inicio' },
-  { id: 'squad', label: 'Plantel' },
-  { id: 'tactics', label: 'Tácticas' },
-  { id: 'table', label: 'Tabla' },
-  { id: 'fixture', label: 'Fixture' },
+const TABS: { id: Tab; label: string; short: string; icon: (p: { size?: number }) => React.ReactNode }[] = [
+  { id: 'home', label: 'Visión general', short: 'Inicio', icon: IconHome },
+  { id: 'squad', label: 'Plantel', short: 'Plantel', icon: IconSquad },
+  { id: 'tactics', label: 'Tácticas', short: 'Tácticas', icon: IconTactics },
+  { id: 'table', label: 'Competición', short: 'Tabla', icon: IconTable },
+  { id: 'fixture', label: 'Calendario', short: 'Fixture', icon: IconCalendar },
 ];
 
 export function Game() {
@@ -22,38 +24,106 @@ export function Game() {
   const error = useGame((s) => s.error);
   const setTab = useGame((s) => s.setTab);
   const backToMenu = useGame((s) => s.backToMenu);
+  const startUserMatch = useGame((s) => s.startUserMatch);
+  const nextSeason = useGame((s) => s.nextSeason);
+  const user = useAuth((s) => s.user);
+  const logout = useAuth((s) => s.logout);
+
   if (!game || !game.userDivision) return null;
   const team = userTeam(game);
   if (!team) return null;
   const div = game.divisions[game.userDivision];
   const total = div.schedule.length;
   const played = Math.min(div.matchday, total);
+  const over = isSeasonOver(game);
+  const next = over ? null : userNextFixture(game);
+  const current = TABS.find((t) => t.id === tab) ?? TABS[0];
+
+  const onContinue = () => {
+    if (over) void nextSeason();
+    else if (next) startUserMatch();
+  };
 
   return (
-    <>
-      <header className="topbar">
-        <div className="brand">
-          <Badge name={team.name} color={team.color} />
-          <div className="brand-text">
-            <div className="brand-name">{team.name}</div>
-            <div className="brand-sub">
-              División {div.id} · Temporada {game.season} · Fecha {played}/{total}
-            </div>
+    <div className="shell" style={{ '--club': team.color } as React.CSSProperties}>
+      <aside className="sidebar">
+        <div className="side-club">
+          <Badge name={team.name} color={team.color} size="lg" />
+          <div className="side-club-text">
+            <strong>{team.name}</strong>
+            <span>División {div.id}</span>
           </div>
         </div>
-        <div className="top-actions">
-          {busy && (
-            <span className="saving" role="status">
-              Guardando…
-            </span>
-          )}
-          <button type="button" className="btn secondary small" onClick={backToMenu}>
-            Menú
+        <nav className="side-nav" aria-label="Secciones">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={t.id === tab ? 'active' : ''}
+              aria-current={t.id === tab ? 'page' : undefined}
+              onClick={() => setTab(t.id)}
+            >
+              <t.icon />
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="side-foot">
+          <div className="side-user">
+            <span className="avatar">{user?.displayName.slice(0, 1).toUpperCase()}</span>
+            <div>
+              <strong>{user?.displayName}</strong>
+              <span>DT {game.dtName}</span>
+            </div>
+          </div>
+          <button type="button" className="side-link" onClick={backToMenu}>
+            <IconSave size={18} /> Partidas
+          </button>
+          <button type="button" className="side-link" onClick={() => void logout()}>
+            <IconLogout size={18} /> Salir
           </button>
         </div>
-      </header>
-      <div className="court-line" />
-      <nav className="tabs" aria-label="Secciones">
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <button type="button" className="tb-crest" onClick={backToMenu} aria-label="Volver a mis partidas">
+            <Badge name={team.name} color={team.color} size="sm" />
+          </button>
+          <div className="tb-title">
+            <h1>{current.label}</h1>
+            <span className="tb-sub">
+              Temp. {game.season} · Fecha {played}/{total}
+              {busy && <span className="saving"> · Guardando…</span>}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn continue"
+            onClick={onContinue}
+            disabled={busy || (!over && !next)}
+            title={over ? 'Empezar la siguiente temporada' : 'Jugar el próximo partido'}
+          >
+            <span>{over ? 'Nueva temporada' : 'Continuar'}</span>
+            <IconArrow size={18} />
+          </button>
+        </header>
+
+        <main className="content">
+          {error && (
+            <p className="alert error" role="alert">
+              {error}
+            </p>
+          )}
+          {tab === 'home' && <Home />}
+          {tab === 'squad' && <Squad />}
+          {tab === 'tactics' && <Tactics />}
+          {tab === 'table' && <Table />}
+          {tab === 'fixture' && <Fixture />}
+        </main>
+      </div>
+
+      <nav className="bottom-nav" aria-label="Secciones">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -62,22 +132,11 @@ export function Game() {
             aria-current={t.id === tab ? 'page' : undefined}
             onClick={() => setTab(t.id)}
           >
-            {t.label}
+            <t.icon size={22} />
+            <span>{t.short}</span>
           </button>
         ))}
       </nav>
-      <main className="page">
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        {tab === 'home' && <Home />}
-        {tab === 'squad' && <Squad />}
-        {tab === 'tactics' && <Tactics />}
-        {tab === 'table' && <Table />}
-        {tab === 'fixture' && <Fixture />}
-      </main>
-    </>
+    </div>
   );
 }
