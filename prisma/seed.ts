@@ -1,6 +1,6 @@
 // Crea (o actualiza) el usuario administrador a partir de ADMIN_USERNAME / ADMIN_PASSWORD del .env.
 import bcrypt from 'bcryptjs';
-import { prisma } from '../server/db';
+import { prisma } from '../server/db.js';
 
 async function main() {
   const username = (process.env.ADMIN_USERNAME ?? 'admin').trim().toLowerCase();

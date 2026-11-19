@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { z } from 'zod';
-import { clearSessionCookie, publicUser, requireAuth, setSessionCookie } from '../auth';
-import { prisma } from '../db';
+import { clearSessionCookie, publicUser, requireAuth, setSessionCookie } from '../auth.js';
+import { prisma } from '../db.js';
 
 export const authRouter = Router();
 

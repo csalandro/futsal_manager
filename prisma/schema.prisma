@@ -3,6 +3,9 @@
 generator client {
   provider = "prisma-client"
   output   = "../server/generated/prisma"
+  // ESM para Node: imports con extensión .js (necesario al compilar para Vercel).
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {

@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAdmin, requireAuth, setSessionCookie } from '../auth';
-import { prisma } from '../db';
-import { Prisma } from '../generated/prisma/client';
+import { requireAdmin, requireAuth, setSessionCookie } from '../auth.js';
+import { prisma } from '../db.js';
+import { Prisma } from '../generated/prisma/client.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);

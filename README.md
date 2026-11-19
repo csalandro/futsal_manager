@@ -2,17 +2,29 @@
 
 Manager de fútbol sala en el navegador: elegís un club entre 54 (3 divisiones), armás alineación y tácticas, y jugás la liga fecha a fecha. Interfaz al estilo de los juegos de manager, pensada también para celular. Cada usuario tiene sus partidas guardadas en Postgres.
 
-## Correr (local con Docker)
+## Correr con Docker (todo en contenedores)
+
+Requisitos: Docker Desktop y Node (solo para generar el `.env`).
+
+```bash
+npm run setup        # crea .env con contraseñas y secretos al azar (no pisa uno existente)
+npm run docker:up    # construye la imagen y levanta Postgres + app
+npm run docker:seed  # crea el usuario admin (ADMIN_USERNAME / ADMIN_PASSWORD del .env)
+```
+
+La app queda en http://localhost:3000. El contenedor aplica las migraciones pendientes cada vez que arranca. Un solo proceso Node sirve la API y el frontend compilado (`Dockerfile`).
+
+## Desarrollo (Postgres en Docker, app en tu máquina)
 
 Requisitos: Node 22+ y Docker Desktop.
 
 ```bash
 npm install
-npm run setup        # crea .env con contraseñas y secretos al azar (no pisa uno existente)
-npm run db:up        # Postgres en Docker (docker-compose.yml)
+npm run setup        # crea .env (si no existe)
+npm run db:up        # solo Postgres
 npm run db:deploy    # aplica las migraciones de Prisma
-npm run db:seed      # crea el usuario admin (ADMIN_USERNAME / ADMIN_PASSWORD del .env)
-npm run dev          # API en :3001 + web en http://localhost:5173
+npm run db:seed      # crea el usuario admin
+npm run dev          # API en :3001 + web con recarga en caliente en http://localhost:5173
 ```
 
 Entrá con el usuario admin. Desde **Usuarios** creás cuentas, asignás el rol (Jugador o Administrador), cambiás contraseñas y desactivás o borrás usuarios. No hay registro público.
@@ -28,11 +40,24 @@ Otros comandos:
 | `npm run db:studio` | Explorar la base con Prisma Studio |
 | `npm run db:down` | Apagar Postgres (los datos quedan en el volumen `pgdata`) |
 
+## Desplegar en Vercel
+
+Un solo proyecto de Vercel sirve las dos partes: el frontend (`dist/`) desde su CDN y la API como una función serverless (`api/index.ts`, que reutiliza `server/app.ts`). Al ser el mismo dominio, la cookie de sesión funciona sin CORS. El navegador nunca se conecta a la base: navegador → `/api` → Prisma → Postgres.
+
+1. Creá un Postgres en la nube (Neon, Supabase o Vercel Postgres). Tu Docker local no es accesible desde Vercel.
+2. Aplicá las migraciones contra esa base desde tu máquina, con la URL **directa** (sin pooler): `DATABASE_URL=<url directa> npm run db:deploy`, y después `npm run db:seed` con `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+3. Importá el repo en Vercel; `vercel.json` ya define el build y las rutas.
+4. Variables de entorno en Vercel: `DATABASE_URL` (la URL **con pooler**), `JWT_SECRET`, `COOKIE_SECURE=true`, `TRUST_PROXY=1`, `DB_POOL_MAX=3`.
+
+Limitaciones en serverless: el freno de intentos de login vive en memoria de cada instancia, así que protege menos que en un servidor único. Los cuerpos están limitados a 4,5 MB (una partida pesa unos cientos de KB).
+
 ## Arquitectura
 
 ```
+api/index.ts           Entrada de la función serverless de Vercel.
 server/                API Express 5 + Prisma 7 (adapter-pg)
-  index.ts             App, defensa CSRF (header X-Requested-With), estáticos en producción.
+  app.ts               App Express (sin listen): defensa CSRF, rutas, estáticos opcionales.
+  index.ts             Servidor de Node (desarrollo, npm start y Docker); --prod sirve dist/.
   auth.ts              Sesión JWT en cookie httpOnly; requireAuth / requireAdmin.
   routes/auth.ts       Login (con freno de fuerza bruta), logout, me, cambio de contraseña.
   routes/admin.ts      Alta, baja y modificación de usuarios (solo ADMIN).

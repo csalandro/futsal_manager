@@ -16,5 +16,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["server", "prisma", "prisma.config.ts"]
+  "include": ["server", "api", "prisma", "prisma.config.ts"]
 }

@@ -1,0 +1,15 @@
+{
+  // Config que usa Vercel al compilar la función (no soporta "project references" del tsconfig raíz).
+  // El chequeo de tipos local lo hace tsconfig.server.json.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true
+  },
+  "include": [".", "../server"]
+}

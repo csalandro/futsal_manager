@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from './db';
-import type { Role } from './generated/prisma/client';
+import { prisma } from './db.js';
+import type { Role } from './generated/prisma/client.js';
 
 export const COOKIE_NAME = 'fm_session';
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;

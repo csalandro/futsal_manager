@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth } from '../auth';
-import { prisma } from '../db';
-import type { Prisma } from '../generated/prisma/client';
+import { requireAuth } from '../auth.js';
+import { prisma } from '../db.js';
+import type { Prisma } from '../generated/prisma/client.js';
 
 export const savesRouter = Router();
 savesRouter.use(requireAuth);

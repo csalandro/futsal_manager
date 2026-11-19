@@ -1,7 +1,8 @@
-# Base de datos local para desarrollo. Las credenciales salen de .env.
-#   docker compose up -d      → levanta Postgres
-#   docker compose down       → lo apaga (los datos quedan en el volumen)
-#   docker compose down -v    → lo apaga y borra los datos
+# Entorno local completo con Docker. Las credenciales salen de .env (npm run setup).
+#   docker compose up -d --build   → Postgres + app (API y web) en http://localhost:3000
+#   docker compose up -d db        → solo Postgres, para desarrollar con `npm run dev`
+#   docker compose down            → apaga todo (los datos quedan en el volumen)
+#   docker compose down -v         → apaga y borra los datos
 services:
   db:
     image: postgres:17-alpine
@@ -20,6 +21,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  app:
+    build: .
+    container_name: futsal-manager-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Dentro de la red de Docker la base se llama "db", no localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # Local por http: la cookie no puede ser "secure". Detrás de HTTPS, poner true.
+      COOKIE_SECURE: "false"
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
 
 volumes:
   pgdata:

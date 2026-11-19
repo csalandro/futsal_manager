@@ -14,13 +14,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:up": "docker compose up -d",
+    "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
+    "docker:up": "docker compose up -d --build",
+    "docker:seed": "docker compose exec app npx prisma db seed",
+    "docker:logs": "docker compose logs -f app",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -32,8 +35,10 @@
     "express": "^5.3.0",
     "immer": "^11.2.9",
     "jsonwebtoken": "^9.0.3",
+    "prisma": "^7.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
     "zod": "^4.6.7",
     "zustand": "^5.1.0"
   },
@@ -47,8 +52,6 @@
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.7",
     "oxlint": "^1.90.0",
-    "prisma": "^7.10.1",
-    "tsx": "^4.23.15",
     "typescript": "~7.0.2",
     "vite": "^8.3.6",
     "vitest": "^5.1.0"
