@@ -55,3 +55,6 @@ desktop.ini
 
 # Cliente de Prisma generado
 server/generated/
+
+# Datos locales de Supabase (credenciales)
+supabase_data.txt
