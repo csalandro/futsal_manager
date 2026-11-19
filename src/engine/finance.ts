@@ -140,9 +140,12 @@ export function setTicketPrice(team: Team, price: number): number {
 
 export interface MatchdayFinance {
   season: number;
-  matchday: number;
+  /** Fecha de liga; null en copas y playoffs (el original los cobra igual: sponsor, sueldos y mantenimiento + entradas de local, HTML 563-592). */
+  matchday: number | null;
   isHome: boolean;
   attendance: number;
+  /** Texto del partido para el historial (HTML 565-566: label); por defecto "Fecha N". */
+  label?: string;
 }
 
 /**
@@ -157,7 +160,7 @@ export function processClubFinances(
 ): void {
   const ctx = { season: m.season, matchday: m.matchday };
   const limit = isUser ? ECONOMY.logSizeUser : ECONOMY.logSizeCpu;
-  const day = `Fecha ${m.matchday + 1}`;
+  const day = m.label ?? `Fecha ${(m.matchday ?? 0) + 1}`;
   const gate = m.isHome ? m.attendance * team.finance.ticketPrice : 0;
   const entries: [FinanceConcept, number, string][] = [
     ['entradas', gate, `${day}: entradas (${num(m.attendance)} espectadores)`],

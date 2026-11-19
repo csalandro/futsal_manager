@@ -2,7 +2,8 @@
 import { CITY_NAMES, CLUB_WORDS, FIRST_NAMES, LAST_NAMES, ORIGINS, TEAM_COLORS, TRAITS } from '../data/names';
 import type { DivisionId, Foot, GameState, Player, Position, Team } from '../domain/types';
 import { CURRENT_SAVE_VERSION } from '../repo/saveSchema';
-import { ECONOMY, LEAGUE, MARKET } from './config';
+import { buildCalendar } from './calendar';
+import { COMPETITIONS, ECONOMY, LEAGUE, MARKET } from './config';
 import { createFinance, defaultStaff } from './finance';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
@@ -116,12 +117,42 @@ export function generateTeam(rng: Rng, usedNames: Set<string>, tier: DivisionId,
   };
 }
 
+/**
+ * Invitado de la Copa Internacional (HTML 957-966): nivel rnd(58,78), estadio de 600-2000 lugares, entrada a 10.
+ * No pertenece a ninguna división; vive en `state.intlGuestTeams`.
+ */
+export function generateGuestTeam(rng: Rng, name: string, colorIdx: number): Team {
+  const { guestLevel, guestCapacity, guestTicketPrice } = COMPETITIONS.intl;
+  const squad = generateSquad(rng, rng.int(guestLevel[0], guestLevel[1]));
+  dedupeNumbers(rng, squad);
+  const finance = createFinance('C', rng.int(ECONOMY.startSponsor.min, ECONOMY.startSponsor.max));
+  finance.ticketPrice = guestTicketPrice;
+  return {
+    id: rng.id(),
+    name,
+    color: TEAM_COLORS[colorIdx % TEAM_COLORS.length],
+    squad,
+    lineup: bestStartingFive(squad),
+    tactic: { formation: '2-2', press: 'media', style: 'equilibrado' },
+    morale: 50,
+    budget: rng.int(40, 90) * 1000,
+    stadium: { name: `Estadio ${name}`, capacity: rng.int(guestCapacity[0], guestCapacity[1]) },
+    record: emptyRecord(),
+    penaltyTakers: [],
+    finance,
+    staff: defaultStaff(),
+  };
+}
+
 export function createNewGame(seed: number, dtName: string): GameState {
   const rng = createRng(seed);
   const usedNames = new Set<string>();
   const build = (id: DivisionId) => {
     const teams = Array.from({ length: LEAGUE.teamsPerDivision }, (_, i) => generateTeam(rng, usedNames, id, i));
-    return { id, teams, schedule: doubleRoundRobin(teams.map((t) => t.id)), matchday: 0, results: [] };
+    return {
+      id, teams, schedule: doubleRoundRobin(teams.map((t) => t.id)), matchday: 0, results: [],
+      phase: 'regular' as const, playoff: null, promotedDirect: null, relegated: null,
+    };
   };
   const divisions = { A: build('A'), B: build('B'), C: build('C') };
   return {
@@ -139,5 +170,18 @@ export function createNewGame(seed: number, dtName: string): GameState {
     market: emptyMarket(),
     watchlist: [],
     h2h: {},
+    // La copa se sortea en `ensureCompetitions` (competitions.ts), que necesita el motor completo.
+    calendar: buildCalendar({ leagueRounds: divisions.A.schedule.length, cup: true, intl: false }),
+    calendarIndex: 0,
+    cup: null,
+    intlCup: null,
+    intlGuestTeams: {},
+    intlCupQualifiedNextSeason: null,
+    championsCup: null,
+    championsHistory: [],
+    lastSeasonAStandings: null,
+    objective: null,
+    seasonHistory: [],
+    titles: [],
   };
 }

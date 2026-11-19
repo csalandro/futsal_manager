@@ -42,6 +42,8 @@ export interface PlayerStats {
   gamesPlayed: number;
   yellowCards: number;
   redCards: number;
+  /** Goles (ya sumados en `goals`) hechos en copas y playoffs; los de liga = goals - cupGoals. Ausente = 0. */
+  cupGoals?: number;
 }
 
 export interface Tactic {
@@ -140,9 +142,16 @@ export interface MatchResult {
   awayId: string;
   hg: number;
   ag: number;
-  /** Solo en eliminatorias: ganador por penales. */
-  penalties?: { home: number; away: number };
+  /** Solo en eliminatorias: ganador por penales (con `kicks` si viene de una tanda simulada). */
+  penalties?: { home: number; away: number; kicks?: PenaltyKick[] };
   scorers: { teamId: string; playerId: string | null; minute: number }[];
+}
+
+/** Un penal de la tanda. */
+export interface PenaltyKick {
+  side: 'home' | 'away';
+  taker: string;
+  scored: boolean;
 }
 
 export interface Division {
@@ -152,6 +161,141 @@ export interface Division {
   schedule: Fixture[][];
   matchday: number; // índice de la próxima fecha a jugar
   results: MatchResult[][]; // resultados por fecha jugada
+  /** 'regular' = liga en curso; 'playoffs' = fase final; 'done' = todo definido (HTML 1249-1251). */
+  phase: 'regular' | 'playoffs' | 'done';
+  playoff: Playoff | null;
+  /** B y C: campeón de la liga, asciende directo (HTML 1705). */
+  promotedDirect: string | null;
+  /** Descienden al terminar la temporada (HTML 1713-1723). En C salen igual y entran equipos nuevos. */
+  relegated: string[] | null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Competiciones (HTML 849-1083, 1659-1850)
+// ---------------------------------------------------------------------------------------------
+
+/** Resultado resumido de un cruce a partido único; si hay empate, `penalties` define. */
+export interface TieResult {
+  hg: number;
+  ag: number;
+  penalties?: { home: number; away: number };
+}
+
+/** Cruce o partido de una copa: ids de local y visitante y su resultado (null = pendiente). */
+export interface Tie {
+  home: string;
+  away: string;
+  result: TieResult | null;
+  label?: string;
+}
+
+export interface Cup {
+  /** Índice de la ronda en curso (0 = primera ronda ... 5 = final). */
+  stage: number;
+  ties: Tie[];
+  /** Con bye: entran en la segunda ronda (HTML 920, 1162). */
+  pendingByes: string[] | null;
+  rounds: { stage: number; ties: Tie[] }[];
+  champion: string | null;
+}
+
+export type PlayoffStage = 'QF' | 'SF' | 'F';
+
+export interface Playoff {
+  quals: string[];
+  stage: PlayoffStage | 'done';
+  ties: Tie[];
+  rounds: { stage: PlayoffStage; ties: Tie[] }[];
+  /** A: campeón (HTML 1680); B y C: segundo ascenso. */
+  winner: string | null;
+}
+
+export type IntlGroupId = 'A' | 'B' | 'C';
+
+export interface IntlGroupRow {
+  id: string;
+  pts: number;
+  w: number;
+  d: number;
+  l: number;
+  gf: number;
+  ga: number;
+}
+
+export interface IntlCup {
+  stage: 'groups' | 'QF' | 'SF' | 'F' | 'done';
+  /** Fecha de grupos en curso (0-2); al llegar a 3 se arman los cuartos. */
+  groupRound: number;
+  groups: Record<IntlGroupId, IntlGroupRow[]>;
+  /** grupo → fechas → partidos. */
+  groupSchedule: Record<IntlGroupId, Tie[][]>;
+  ties: Tie[];
+  rounds: { stage: 'QF' | 'SF' | 'F'; ties: Tie[] }[];
+  champion: string | null;
+}
+
+export interface ChampionsCup {
+  stage: 'SF' | 'F' | 'done';
+  ties: Tie[];
+  rounds: { stage: 'SF' | 'F'; ties: Tie[] }[];
+  champion: string | null;
+  /** Quién representa a la copa nacional (el subcampeón de A si el campeón de copa ya estaba clasificado; HTML 1755-1763). */
+  copaRepresentative: string | null;
+}
+
+/** Paso del calendario: una fecha de liga o una ronda de una competición (HTML 852-870). */
+export type CalendarStep =
+  | { kind: 'league'; round: number }
+  | { kind: 'cup'; round: number }
+  /** 0-2 = fechas de grupos; 3 = cuartos; 4 = semifinal; 5 = final. */
+  | { kind: 'intl'; round: number }
+  | { kind: 'playoff'; stage: PlayoffStage }
+  | { kind: 'champions'; stage: 'SF' | 'F' };
+
+export type CompetitionKey = 'divA' | 'divB' | 'divC' | 'copa' | 'intl' | 'campeones';
+
+export interface TeamRef {
+  id: string;
+  name: string;
+}
+
+/** Campeones de una temporada (HTML 1841-1849). */
+export interface ChampionsHistoryEntry {
+  season: number;
+  champA: TeamRef | null;
+  champB: TeamRef | null;
+  champC: TeamRef | null;
+  champCup: TeamRef | null;
+  champCupRep: TeamRef | null;
+  champChampionsCup: TeamRef | null;
+  champIntl: TeamRef | null;
+}
+
+export type ObjectiveType = 'title' | 'playoffs' | 'promote' | 'playoff_promote' | 'survive' | 'top_half';
+
+/** Objetivo de temporada del usuario (HTML 1544-1570). */
+export interface SeasonObjective {
+  division: DivisionId;
+  season: number;
+  tier: 'top' | 'mid' | 'bottom';
+  type: ObjectiveType;
+  text: string;
+}
+
+/** Cierre de temporada del usuario (HTML 1953-1956); el bloque 5 usa `objectiveMet` para la presión de la directiva. */
+export interface SeasonRecord {
+  season: number;
+  division: DivisionId;
+  position: number;
+  outcome: string;
+  objective: SeasonObjective | null;
+  objectiveMet: boolean | null;
+}
+
+/** Título del usuario (para el palmarés). */
+export interface Title {
+  season: number;
+  competition: CompetitionKey;
 }
 
 export interface GameState {
@@ -173,6 +317,23 @@ export interface GameState {
   watchlist: WatchEntry[];
   /** Historial por par de equipos; clave = ids ordenados unidos con '|'. */
   h2h: Record<string, H2HRecord>;
+  /** Calendario intercalado de la temporada y paso actual (HTML 852-871). Los pasos anteriores al índice ya están hechos. */
+  calendar: CalendarStep[];
+  calendarIndex: number;
+  cup: Cup | null;
+  /** Solo hay Copa Internacional si en la temporada anterior hubo un clasificado (HTML 2056-2061). */
+  intlCup: IntlCup | null;
+  /** Equipos invitados de la Internacional, por id (HTML 955); no pertenecen a ninguna división. */
+  intlGuestTeams: Record<string, Team>;
+  /** Id del clasificado a la Internacional de la temporada que viene: campeón de los playoffs de A (HTML 1949, 2056). */
+  intlCupQualifiedNextSeason: string | null;
+  championsCup: ChampionsCup | null;
+  championsHistory: ChampionsHistoryEntry[];
+  /** Posiciones finales de A de la temporada anterior: definen los byes de la copa (HTML 1963). */
+  lastSeasonAStandings: string[] | null;
+  objective: SeasonObjective | null;
+  seasonHistory: SeasonRecord[];
+  titles: Title[];
 }
 
 /** Oferta de otro club por un jugador del usuario (HTML 4116-4137). */

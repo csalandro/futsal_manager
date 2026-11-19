@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import type { GameState } from '../domain/types';
+import { buildCalendar, indexAfterLeagueRounds } from '../engine/calendar';
+import { COMPETITIONS } from '../engine/config';
 import { createFinance, defaultStaff, sponsorFromRating } from '../engine/finance';
 import { emptyMarket } from '../engine/world';
 
-export const CURRENT_SAVE_VERSION = 4;
+export const CURRENT_SAVE_VERSION = 5;
 
 // Validación superficial: versión y forma general. El detalle lo garantiza TypeScript al escribir.
 const saveEnvelope = z
@@ -82,10 +84,53 @@ export function migrateV3toV4(s: Obj): Obj {
   };
 }
 
+/**
+ * v4 → v5: competiciones. Las divisiones pasan a tener fase/playoff/ascenso directo/descensos (en 'regular', sin nada
+ * armado) y la partida gana calendario, copas, historial, objetivo y títulos.
+ *
+ * Una partida a mitad de temporada no permite reconstruir qué se habría jugado de la copa: se arma el calendario
+ * intercalado con las fechas de liga ya jugadas como hechas (el índice queda justo después de la última) y
+ *  - si todavía no pasó la primera ronda de copa (fecha de liga <= 5), la copa se juega completa esta temporada
+ *    (la sortea `ensureCompetitions` al cargar);
+ *  - si ya pasaron rondas, las copas de esas rondas quedan como NO disputadas esta temporada (sin copa ni pasos de copa).
+ * No hay Copa Internacional esta temporada (nadie clasificó). Si la liga ya terminó (fecha 34), los playoffs se arman
+ * al cargar. La próxima temporada arranca con todo el formato nuevo.
+ */
+export function migrateV4toV5(s: Obj): Obj {
+  const divisions = { ...(s.divisions as Obj) };
+  for (const id of ['A', 'B', 'C']) {
+    const div = divisions[id] as Obj | undefined;
+    if (!div) continue;
+    divisions[id] = { ...div, phase: div.phase ?? 'regular', playoff: div.playoff ?? null, promotedDirect: div.promotedDirect ?? null, relegated: div.relegated ?? null };
+  }
+  const a = divisions.A as { matchday?: number; schedule?: unknown[] } | undefined;
+  const leagueRounds = a?.schedule?.length || 34;
+  const played = Math.min(a?.matchday ?? 0, leagueRounds);
+  const cupStillOn = played <= COMPETITIONS.cupInsertAfter[0];
+  const calendar = buildCalendar({ leagueRounds, cup: cupStillOn, intl: false });
+  return {
+    ...s,
+    divisions,
+    calendar,
+    calendarIndex: indexAfterLeagueRounds(calendar, played),
+    cup: null,
+    intlCup: null,
+    intlGuestTeams: {},
+    intlCupQualifiedNextSeason: null,
+    championsCup: null,
+    championsHistory: [],
+    lastSeasonAStandings: null,
+    objective: null,
+    seasonHistory: [],
+    titles: [],
+  };
+}
+
 const MIGRATIONS: Record<number, (s: Obj) => Obj> = {
   1: migrateV1toV2,
   2: migrateV2toV3,
   3: migrateV3toV4,
+  4: migrateV4toV5,
 };
 
 export function parseSave(raw: unknown): GameState | null {

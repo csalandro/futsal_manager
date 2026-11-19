@@ -2,7 +2,7 @@
 // Goles ~ Poisson(λ), con λ derivado de la diferencia de fuerza. Los minutos de cada evento son
 // uniformes en cada tiempo (proceso de Poisson homogéneo), así relato y resultado salen de la misma distribución.
 // El partido se arma en dos tiempos (simulateHalf) para permitir cambios tácticos en el entretiempo.
-import type { MatchEvent, MatchResult, Player, Team } from '../domain/types';
+import type { MatchEvent, MatchResult, PenaltyKick, Player, Team } from '../domain/types';
 import {
   COMMENT_BUILD, COMMENT_CHANCE, COMMENT_FOUL, COMMENT_GOAL, COMMENT_RED, COMMENT_SAVE,
   COMMENT_YELLOW, fillScorer, fillTeams,
@@ -272,26 +272,33 @@ export function penaltyTakerOrder(team: Team): Player[] {
 }
 
 /** Tanda de 5 penales por lado y luego muerte súbita. Mismo procedimiento para todos los equipos. */
-export function penaltyShootout(home: Team, away: Team, rng: Rng): { home: number; away: number } {
+export function penaltyShootout(
+  home: Team,
+  away: Team,
+  rng: Rng,
+): { home: number; away: number; kicks: PenaltyKick[] } {
   const ht = penaltyTakerOrder(home), at = penaltyTakerOrder(away);
   const hk = goalkeeper(home), ak = goalkeeper(away);
-  const shot = (taker: Player | undefined, keeper: Player | undefined) => {
+  const kicks: PenaltyKick[] = [];
+  const shot = (side: 'home' | 'away', taker: Player | undefined, keeper: Player | undefined) => {
     const diff = (taker?.rating ?? 60) - (keeper?.rating ?? 60);
-    return rng.chance(clamp(MATCH.penaltyBase + MATCH.penaltySensitivity * diff, 0.45, 0.95));
+    const scored = rng.chance(clamp(MATCH.penaltyBase + MATCH.penaltySensitivity * diff, 0.45, 0.95));
+    kicks.push({ side, taker: taker?.name ?? '—', scored });
+    return scored;
   };
   let h = 0, a = 0;
   for (let i = 0; i < 5; i++) {
-    if (shot(ht[i % ht.length], ak)) h++;
-    if (shot(at[i % at.length], hk)) a++;
+    if (shot('home', ht[i % ht.length], ak)) h++;
+    if (shot('away', at[i % at.length], hk)) a++;
     const left = 4 - i;
     if (h > a + left || a > h + left) break; // definida antes de terminar
   }
   for (let i = 5; h === a && i < 50; i++) {
-    if (shot(ht[i % ht.length], ak)) h++;
-    if (shot(at[i % at.length], hk)) a++;
+    if (shot('home', ht[i % ht.length], ak)) h++;
+    if (shot('away', at[i % at.length], hk)) a++;
   }
   if (h === a) h++; // salvaguarda teórica
-  return { home: h, away: a };
+  return { home: h, away: a, kicks };
 }
 
 export function winnerId(r: MatchResult): string | null {

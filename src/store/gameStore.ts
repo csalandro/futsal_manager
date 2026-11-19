@@ -6,11 +6,12 @@ import {
   chooseSponsorOffer, ensureSponsorOffers, fireStaff, hireStaff, medicalLevels, recordMovement, renameStadium,
   setTicketPrice, upgradeStadium, type FinanceCtx,
 } from '../engine/finance';
+import { ensureCompetitions } from '../engine/competitions';
 import { createNewGame } from '../engine/generate';
 import { composeMatch, simulateHalf, type HalfResult, type SimulatedMatch } from '../engine/match';
 import { acceptOffer, advancePreseason, buyPlayer, isPreseason, rejectOffer, tickMarket, toggleTransferListed, toggleWatch } from '../engine/market';
 import { createRng, randomSeed } from '../engine/rng';
-import { isSeasonOver, playMatchday, pushNews, startNewSeason, userNextFixture, userTeam } from '../engine/season';
+import { isSeasonOver, playNextStep, pushNews, startNewSeason, userNextFixture, userTeam } from '../engine/season';
 import {
   bestAvailableFive, firePlayer, lineupIssues, movePenaltyTaker, renewContract, setPlayerNumber, togglePenaltyTaker,
 } from '../engine/squad';
@@ -39,6 +40,10 @@ export interface LiveMatch {
   homeName: string;
   awayName: string;
   userIsHome: boolean;
+  /** Eliminatoria: si termina empatado hay tanda de penales. */
+  knockout: boolean;
+  /** "Fecha 7", "Copa · Octavos de final", ... */
+  label: string;
 }
 
 interface Store {
@@ -69,8 +74,8 @@ interface Store {
   resumeSecondHalf(): void;
   /** Cierra el relato y juega el resto de la fecha. */
   finishUserMatch(): Promise<void>;
-  /** Juega la fecha sin ver el partido. */
-  quickPlayMatchday(): Promise<void>;
+  /** Juega el paso actual del calendario (fecha, ronda de copa, playoff...) sin ver el partido. */
+  quickPlayStep(): Promise<void>;
   nextSeason(): Promise<void>;
   /** Avanza una semana de pretemporada (sin partidos). */
   advancePreseason(): Promise<void>;
@@ -137,6 +142,7 @@ export const useGame = create<Store>()(
         s.game.userTeamId = teamId;
         s.game.userDivision = div ?? null;
         ensureSponsorOffers(s.game);
+        ensureCompetitions(s.game); // sortea la copa y fija el objetivo del usuario
         tickMarket(s.game); // arma el mercado ya sabiendo cuál es el equipo del usuario
         s.screen = 'game';
       });
@@ -149,6 +155,7 @@ export const useGame = create<Store>()(
         const game = await repository.load(slot);
         if (!game) throw new Error('No se pudo cargar la partida (vacía o de una versión incompatible)');
         ensureSponsorOffers(game); // partidas migradas o con la temporada recién empezada
+        ensureCompetitions(game); // partidas migradas de v4: sortea la copa, arma los playoffs y fija el objetivo
         tickMarket(game); // partidas migradas de v3: arma el mercado de la ventana en curso
         set({ game, slot, screen: game.userTeamId ? 'game' : 'pickTeam', tab: 'home', live: null });
       } catch (e) {
@@ -226,7 +233,7 @@ export const useGame = create<Store>()(
         s.game.rngState = rng.state();
         s.live = {
           half1, sim: null, homeId: fx.home.id, awayId: fx.away.id,
-          homeName: fx.home.name, awayName: fx.away.name, userIsHome,
+          homeName: fx.home.name, awayName: fx.away.name, userIsHome, knockout: fx.knockout, label: fx.label,
         };
       });
     },
@@ -241,7 +248,7 @@ export const useGame = create<Store>()(
           prior: s.live.half1.events,
           medicalLevel: medicalLevels(fx.home, fx.away),
         });
-        s.live.sim = composeMatch(fx.home, fx.away, s.live.half1, second, rng);
+        s.live.sim = composeMatch(fx.home, fx.away, s.live.half1, second, rng, { knockout: s.live.knockout });
         s.game.rngState = rng.state();
       });
       void get().persist();
@@ -250,16 +257,19 @@ export const useGame = create<Store>()(
     async finishUserMatch() {
       set((s) => {
         if (!s.game || !s.live?.sim) return;
-        playMatchday(s.game, s.live.sim);
+        playNextStep(s.game, s.live.sim);
         s.live = null;
       });
       await get().persist();
     },
 
-    async quickPlayMatchday() {
+    async quickPlayStep() {
       set((s) => {
         const me = s.game && userTeam(s.game);
-        if (s.game && me && !isPreseason(s.game) && lineupIssues(me).length === 0) playMatchday(s.game);
+        if (!s.game || !me || s.live || isPreseason(s.game) || isSeasonOver(s.game)) return;
+        // Con partido propio en este paso hace falta una alineación válida; sin partido propio se simula directo.
+        if (userNextFixture(s.game) && lineupIssues(me).length > 0) return;
+        playNextStep(s.game);
       });
       await get().persist();
     },

@@ -4,7 +4,7 @@ import { isPreseason, marketWindow, windowStatusText } from '../engine/market';
 import { matchOdds } from '../engine/match';
 import { isRivalMatch, recentResults } from '../engine/rivalry';
 import { lineupIssues } from '../engine/squad';
-import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
+import { currentStepLabel, findTeam, isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { standings } from '../engine/standings';
 import { teamStrength } from '../engine/strength';
 import { useGame } from '../store/gameStore';
@@ -62,7 +62,7 @@ export function Home() {
   const game = useGame((s) => s.game);
   const busy = useGame((s) => s.busy);
   const startUserMatch = useGame((s) => s.startUserMatch);
-  const quickPlayMatchday = useGame((s) => s.quickPlayMatchday);
+  const quickPlayStep = useGame((s) => s.quickPlayStep);
   const nextSeason = useGame((s) => s.nextSeason);
   const autoLineup = useGame((s) => s.autoLineup);
   const advancePreseason = useGame((s) => s.advancePreseason);
@@ -86,6 +86,11 @@ export function Home() {
   const classic = fx ? isRivalMatch(game, fx.home.id, fx.away.id) : false;
   const nextRival = fx ? (fx.home.id === game.userTeamId ? fx.away : fx.home) : null;
   const sponsorPending = game.sponsorOffers?.season === game.season;
+  const stepLabel = currentStepLabel(game);
+  const nameOf = (id: string | null | undefined) => (id ? findTeam(game, id)?.name ?? null : null);
+  const champA = nameOf(game.divisions.A.playoff?.winner);
+  const cupChamp = nameOf(game.cup?.champion);
+  const champions = nameOf(game.championsCup?.champion);
   const topScorer = [...team.squad].sort((a, b) => b.stats.goals - a.stats.goals)[0];
 
   return (
@@ -138,6 +143,11 @@ export function Home() {
               <p>
                 Terminaste <b>{pos}º</b> de {table.length} en la División {game.userDivision}.
               </p>
+              <ul className="small">
+                {champA && <li>Campeón de Primera A: {champA}</li>}
+                {cupChamp && <li>Campeón de la Copa: {cupChamp}</li>}
+                {champions && <li>Copa de Campeones: {champions}</li>}
+              </ul>
             </div>
             <button type="button" className="btn primary" disabled={busy} onClick={() => void nextSeason()}>
               Siguiente temporada
@@ -149,7 +159,8 @@ export function Home() {
           <header className="panel-head">
             <h2>Próximo partido</h2>
             <span className="tag">
-              {classic && <b className="classic">🔥 ¡Clásico! </b>}Fecha {fx.matchday + 1}
+              {classic && <b className="classic">🔥 ¡Clásico! </b>}
+              {fx.label}
             </span>
           </header>
           <div className="fixture-hero">
@@ -170,6 +181,7 @@ export function Home() {
               <span className="muted">Visitante · Fuerza {Math.round(teamStrength(fx.away))}</span>
             </div>
           </div>
+          {fx.knockout && <p className="muted small">Eliminatoria a partido único: si hay empate, se define por penales.</p>}
           <div className="odds-bar" role="img" aria-label={`Probabilidades: local ${pct(odds.home)}, empate ${pct(odds.draw)}, visitante ${pct(odds.away)}`}>
             <span className="ob-home" style={{ flexGrow: odds.home }}>
               {pct(odds.home)}
@@ -208,8 +220,8 @@ export function Home() {
             <button type="button" className="btn primary" disabled={busy || blocked} onClick={startUserMatch}>
               Jugar en vivo
             </button>
-            <button type="button" className="btn" disabled={busy || blocked} onClick={() => void quickPlayMatchday()}>
-              Simular fecha
+            <button type="button" className="btn" disabled={busy || blocked} onClick={() => void quickPlayStep()}>
+              Simular partido
             </button>
             <button type="button" className="btn ghost" onClick={() => setRivalOpen(true)} aria-haspopup="dialog">
               Ver al rival
@@ -217,9 +229,23 @@ export function Home() {
           </div>
         </section>
       ) : (
-        <section className="panel span-2">
-          <p className="empty">No hay partido pendiente.</p>
+        <section className="panel hero span-2">
+          <header className="panel-head">
+            <h2>Próximo paso</h2>
+            <span className="tag">{stepLabel}</span>
+          </header>
+          <p>No tenés partido en este paso del calendario: se simula la jornada y seguís.</p>
+          <div className="actions">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => void quickPlayStep()}>
+              Simular
+            </button>
+          </div>
         </section>
+      )}
+      {game.objective && (
+        <p className="span-2 objective small" role="note">
+          🎯 Objetivo de la temporada: <b>{game.objective.text}</b>
+        </p>
       )}
 
       {!preseason && (

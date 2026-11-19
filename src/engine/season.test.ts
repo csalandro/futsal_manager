@@ -60,17 +60,19 @@ describe('partida y temporada', () => {
     expect(s.news.length).toBeLessThanOrEqual(30);
   });
 
-  it('startNewSeason mantiene 18 equipos por división y mueve 2+2', () => {
+  it('startNewSeason mantiene 18 equipos por división y aplica los ascensos y descensos del original', () => {
     const s = createNewGame(21, 'DT');
     playAll(s);
     const before = Object.fromEntries(DIVS.map((d) => [d, standings(s.divisions[d].teams).map((t) => t.id)]));
+    const up = { B: [s.divisions.B.promotedDirect!, s.divisions.B.playoff!.winner!], C: [s.divisions.C.promotedDirect!, s.divisions.C.playoff!.winner!] };
     startNewSeason(s);
     const after = Object.fromEntries(DIVS.map((d) => [d, new Set(s.divisions[d].teams.map((t) => t.id))]));
     for (const d of DIVS) expect(after[d].size).toBe(18);
     expect(before.A.slice(-2).every((id) => after.B.has(id))).toBe(true);
-    expect(before.B.slice(0, 2).every((id) => after.A.has(id))).toBe(true);
     expect(before.B.slice(-2).every((id) => after.C.has(id))).toBe(true);
-    expect(before.C.slice(0, 2).every((id) => after.B.has(id))).toBe(true);
+    expect(up.B.every((id) => after.A.has(id))).toBe(true);
+    expect(up.C.every((id) => after.B.has(id))).toBe(true);
+    expect(before.B[0]).toBe(up.B[0]); // el campeón de la liga asciende directo
     expect(s.season).toBe(2);
     for (const d of DIVS) {
       const div = s.divisions[d];

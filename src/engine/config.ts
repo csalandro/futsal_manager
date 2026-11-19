@@ -254,3 +254,45 @@ export const RIVALRY = {
   minMatches: 3,
   balanceWeight: 3,
 } as const;
+
+/**
+ * Competiciones. Port de HTML 849-851 (calendario), 902-1083 (copas), 1544-1582 (objetivo), 1699-1728 (playoffs)
+ * y 1943-2062 (ascensos, descensos y clasificación a la Copa Internacional).
+ */
+export const COMPETITIONS = {
+  /** Etapas de la copa nacional (HTML 849). Equipos: 54 − 10 con bye = 44 → 22 partidos; luego 32 → 16 → 8 → 4 → 2 → 1. */
+  cupStageLabels: ['Primera ronda', 'Dieciseisavos de final', 'Octavos de final', 'Cuartos de final', 'Semifinal', 'Final'],
+  /** Fechas de liga tras las que se juega una ronda de la copa (HTML 850) y de la Internacional (HTML 851). */
+  cupInsertAfter: [5, 10, 15, 20, 25, 29],
+  intlInsertAfter: [3, 8, 13, 18, 23, 28],
+  /** Equipos de Primera A que arrancan con bye en la primera ronda (HTML 904-908). */
+  cupByes: 10,
+  /** Playoffs (HTML 1706-1710): 8 clasificados; en B y C salen del 2º al 9º (el 1º asciende directo). */
+  playoffSeeds: 8,
+  /** Orden de cruces de cuartos por posición de clasificación (HTML 1662): 1-8, 4-5, 2-7, 3-6. */
+  playoffBracket: [0, 7, 3, 4, 1, 6, 2, 5],
+  /** Descensos por división (HTML 1713, 1723): A y B bajan 2; en C salen 3 y entran 3 equipos nuevos. */
+  relegations: { A: 2, B: 2, C: 3 },
+  /** Copa Internacional (HTML 940-980): el campeón de los playoffs de A + invitados, 12 equipos en 3 grupos de 4. */
+  intl: {
+    guestCount: 11,
+    guestLevel: [58, 78],
+    guestCapacity: [600, 2000],
+    guestTicketPrice: 10,
+    groupSize: 4,
+    bestThirds: 2,
+    names: [
+      'Real Montevideo', 'Atlético Asunción', 'Deportivo Lima', 'Club Santiago', 'Nacional La Paz', 'Universitario Quito',
+      'Atlético Bogotá', 'Sporting Caracas', 'Real Brasilia', 'Independiente São Paulo', 'Club Ciudad de México',
+      'Deportivo San Pablo', 'Atlético Panamá', 'Sporting Santo Domingo', 'Nacional San José',
+    ],
+  },
+  /** Objetivo de temporada según el puesto por fuerza en la división (HTML 1548-1552): top = 4 primeros, bottom = 4 últimos. */
+  objectiveTierSize: 4,
+  /** Posiciones que cumplen cada objetivo (HTML 1575-1579). */
+  objectiveTopHalf: 9,
+  objectivePlayoffA: 8,
+  objectivePlayoffB: 9,
+  /** Máx. entradas del historial de campeones. */
+  historyMax: 50,
+} as const;

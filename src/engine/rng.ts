@@ -38,3 +38,13 @@ export function createRng(state: number): Rng {
 export function randomSeed(): number {
   return (Math.random() * 2 ** 32) >>> 0;
 }
+
+/** Copia mezclada (Fisher-Yates) con el rng de la partida. */
+export function shuffle<T>(arr: readonly T[], rng: Rng): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rng.int(0, i);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}

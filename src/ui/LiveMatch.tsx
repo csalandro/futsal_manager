@@ -33,6 +33,8 @@ export function LiveMatch() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLOListElement>(null);
   const continueRef = useRef<HTMLButtonElement>(null);
+  // Tanda de penales (solo eliminatorias empatadas): penales ya mostrados.
+  const [penShown, setPenShown] = useState(0);
 
   const secondHalf = !!live?.sim;
   // Primer tiempo: el reloj frena en el entretiempo hasta que el DT juega el segundo.
@@ -40,6 +42,10 @@ export function LiveMatch() {
   const atHalftime = !secondHalf && minute >= HALF;
   const finished = secondHalf && minute >= MATCH.minutes;
   const clockStopped = minute >= total;
+  const pens = live?.sim?.result.penalties;
+  const kicks = pens?.kicks ?? [];
+  const inPens = finished && !!pens;
+  const pensDone = !pens || penShown >= kicks.length;
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -52,6 +58,12 @@ export function LiveMatch() {
     const id = window.setInterval(() => setMinute((m) => Math.min(total, m + 1)), 1000 / speed);
     return () => window.clearInterval(id);
   }, [speed, clockStopped, total]);
+
+  useEffect(() => {
+    if (!inPens || pensDone) return;
+    const id = window.setInterval(() => setPenShown((n) => Math.min(kicks.length, n + 1)), 1100 / speed);
+    return () => window.clearInterval(id);
+  }, [inPens, pensDone, speed, kicks.length]);
 
   const events = useMemo(
     () => (live ? [...(live.sim ? live.sim.events : live.half1.events)].sort((a, b) => a.minute - b.minute) : []),
@@ -68,8 +80,8 @@ export function LiveMatch() {
   }, [visible.length]);
 
   useEffect(() => {
-    if (finished || atHalftime) continueRef.current?.focus();
-  }, [finished, atHalftime]);
+    if ((finished && pensDone) || atHalftime) continueRef.current?.focus();
+  }, [finished, pensDone, atHalftime]);
 
   if (!live || !game) return null;
   const home = findTeam(game, live.homeId);
@@ -77,6 +89,11 @@ export function LiveMatch() {
   const me = userTeam(game);
   const homeColor = home?.color ?? '#556';
   const awayColor = away?.color ?? '#556';
+
+  const shown = kicks.slice(0, penShown);
+  const penHome = shown.filter((k) => k.side === 'home' && k.scored).length;
+  const penAway = shown.filter((k) => k.side === 'away' && k.scored).length;
+  const penWinner = pens && pensDone ? (pens.home > pens.away ? live.homeName : live.awayName) : null;
 
   const stats: { label: string; h: number; a: number }[] = [
     { label: 'Remates', h: count('home', 'goal', 'chance', 'save'), a: count('away', 'goal', 'chance', 'save') },
@@ -92,7 +109,7 @@ export function LiveMatch() {
   return (
     <div className="match-screen" role="dialog" aria-modal="true" aria-labelledby="live-title" ref={dialogRef} tabIndex={-1}>
       <h2 id="live-title" className="sr-only">
-        Partido en vivo: {live.homeName} contra {live.awayName}
+        Partido en vivo ({live.label}): {live.homeName} contra {live.awayName}
       </h2>
 
       <header className="scorebar" style={{ '--home': homeColor, '--away': awayColor } as React.CSSProperties}>
@@ -107,8 +124,9 @@ export function LiveMatch() {
             <span>{ag}</span>
           </div>
           <div className={`sb-clock${finished ? ' ft' : ''}`}>
-            {finished ? 'FINAL' : atHalftime ? 'ENTRETIEMPO' : `${String(minute).padStart(2, '0')}'`}
+            {inPens && !pensDone ? 'PENALES' : finished ? 'FINAL' : atHalftime ? 'ENTRETIEMPO' : `${String(minute).padStart(2, '0')}'`}
           </div>
+          <div className="sb-label">{live.label}</div>
         </div>
         <div className="sb-side away">
           <span className="sb-name">{live.awayName}</span>
@@ -163,6 +181,37 @@ export function LiveMatch() {
         </section>
       </div>
 
+      {inPens && pens && (
+        <section className="panel pens" aria-labelledby="pen-title">
+          <header className="panel-head">
+            <h2 id="pen-title">
+              Tanda de penales: {penHome} - {penAway}
+            </h2>
+            {!pensDone && (
+              <button type="button" className="btn small ghost" onClick={() => setPenShown(kicks.length)}>
+                Saltar
+              </button>
+            )}
+          </header>
+          {shown.length === 0 && <p className="muted">Empate en tiempo regular: se define desde los doce pasos.</p>}
+          <ol className="pen-list" aria-live="polite">
+            {shown.map((k, i) => (
+              <li key={i} className={`pen ${k.side} ${k.scored ? 'goal' : 'miss'}`}>
+                <span aria-hidden="true">{k.scored ? '⚽' : '✖'}</span>
+                <span>
+                  {k.taker} ({k.side === 'home' ? live.homeName : live.awayName}): {k.scored ? 'gol' : 'lo erró'}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {penWinner && (
+            <p className="pen-result" role="status">
+              <b>{penWinner}</b> gana {Math.max(pens.home, pens.away)}-{Math.min(pens.home, pens.away)} por penales.
+            </p>
+          )}
+        </section>
+      )}
+
       {atHalftime && me && (
         <section className="panel halftime" aria-labelledby="ht-title">
           <header className="panel-head">
@@ -208,6 +257,10 @@ export function LiveMatch() {
         {atHalftime ? (
           <button type="button" className="btn continue" ref={continueRef} onClick={resumeSecondHalf}>
             Jugar segundo tiempo
+          </button>
+        ) : finished && !pensDone ? (
+          <button type="button" className="btn ghost" onClick={() => setPenShown(kicks.length)}>
+            Saltar penales
           </button>
         ) : finished ? (
           <button type="button" className="btn continue" ref={continueRef} disabled={busy} onClick={() => void finishUserMatch()}>

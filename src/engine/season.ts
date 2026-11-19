@@ -1,226 +1,93 @@
-// Avance de temporada: jugar fechas, actualizar estado de jugadores, ascensos/descensos y progresión.
+// Avance de temporada: pasos del calendario, ascensos/descensos y progresión.
 // Las funciones MUTAN el estado recibido (se llaman dentro de immer `produce`).
-import type { DivisionId, GameState, MatchEvent, MatchResult, Player, Team } from '../domain/types';
-import { DISCIPLINE, FORM, MARKET, RETIREMENT, SQUAD } from './config';
-import {
-  computeAttendance, defaultTicketPrice, ensureSponsorOffers, generateSponsorOffers, medicalLevels, medicRecoveryMult, pickBestOffer,
-  processClubFinances, signSponsor,
-} from './finance';
-import { generatePlayer, playerValue } from './generate';
+import type { CalendarStep, DivisionId, GameState, MatchResult, Player, Team } from '../domain/types';
+import { buildCalendar, stepLabel } from './calendar';
+import { buildCup, buildIntlCup, ensureCompetitions, runStep, userStepFixture } from './competitions';
+import { COMPETITIONS, MARKET, RETIREMENT, SQUAD } from './config';
+import { defaultTicketPrice, ensureSponsorOffers, generateSponsorOffers, pickBestOffer, signSponsor } from './finance';
+import { generatePlayer, generateTeam, playerValue } from './generate';
 import { tickMarket } from './market';
-import { simulateMatch, type SimulatedMatch } from './match';
+import type { SimulatedMatch } from './match';
+import { computeSeasonObjective, evaluateObjective } from './objective';
+import { updateMorale } from './play';
 import { createRng, type Rng } from './rng';
-import { isRivalMatch, recordH2H } from './rivalry';
 import { doubleRoundRobin } from './schedule';
 import { bestAvailableFive, canAddPlayer } from './squad';
-import { applyResult, emptyRecord, standings } from './standings';
-import { PRESS_META } from './strength';
+import { emptyRecord, standings } from './standings';
 import { allTeams, DIVISIONS, findTeam, pushNews, userTeam } from './world';
 
 // Estas consultas viven en world.ts (para evitar ciclos); se reexportan porque el resto de la app las importa de acá.
-export { allTeams, findTeam, pushNews, userTeam };
+export { allTeams, findTeam, pushNews, updateMorale, userTeam };
 
-const PROMOTION_SLOTS = 2;
+export function currentStep(state: GameState): CalendarStep | null {
+  return state.calendar[state.calendarIndex] ?? null;
+}
 
-export function userNextFixture(state: GameState): { home: Team; away: Team; matchday: number } | null {
+export interface UserFixture {
+  home: Team;
+  away: Team;
+  /** Fecha de liga en curso (matchday de la división del usuario). */
+  matchday: number;
+  step: CalendarStep;
+  knockout: boolean;
+  /** "Fecha 7", "Copa · Octavos de final", ... */
+  label: string;
+}
+
+/** Partido del usuario en el paso actual del calendario; null si en este paso no juega (o no hay más pasos). */
+export function userNextFixture(state: GameState): UserFixture | null {
   if (!state.userDivision || !state.userTeamId) return null;
-  const div = state.divisions[state.userDivision];
-  const round = div.schedule[div.matchday];
-  if (!round) return null;
-  const fx = round.find(([h, a]) => h === state.userTeamId || a === state.userTeamId);
+  const step = currentStep(state);
+  if (!step) return null;
+  const fx = userStepFixture(state, step);
   if (!fx) return null;
-  const home = div.teams.find((t) => t.id === fx[0]);
-  const away = div.teams.find((t) => t.id === fx[1]);
-  return home && away ? { home, away, matchday: div.matchday } : null;
+  const home = findTeam(state, fx.homeId), away = findTeam(state, fx.awayId);
+  if (!home || !away) return null;
+  return { home, away, matchday: state.divisions[state.userDivision].matchday, step, knockout: fx.knockout, label: fx.label };
 }
 
-export function updateMorale(team: Team, outcome: 'win' | 'draw' | 'loss', rng: Rng): void {
-  if (outcome === 'win') team.morale = Math.min(100, team.morale + rng.int(4, 8));
-  else if (outcome === 'draw') team.morale = Math.max(0, Math.min(100, team.morale + rng.int(-1, 1)));
-  else team.morale = Math.max(0, team.morale - rng.int(4, 8));
-}
-
-const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
-
-function updateFatigue(team: Team): void {
-  const mult = PRESS_META[team.tactic.press]?.fatigueMult ?? 1;
-  // HTML 781: cada fisioterapeuta acelera 15% la recuperación de los que no juegan.
-  const medicRecovery = medicRecoveryMult(team);
-  const starters = new Set(team.lineup.filter((id): id is string => !!id));
-  for (const p of team.squad) {
-    p.fatigue = starters.has(p.id)
-      ? clamp(Math.round(p.fatigue + 10 * mult), 0, 100)
-      : clamp(Math.round(p.fatigue - 15 * medicRecovery), 0, 100);
-  }
+/** Descripción del paso actual para la UI ("Copa · Octavos de final"), o null si terminó la temporada. */
+export function currentStepLabel(state: GameState): string | null {
+  const step = currentStep(state);
+  return step ? stepLabel(step) : null;
 }
 
 /**
- * Tarjetas, lesiones y cumplimiento de sanciones de UN equipo tras un partido (HTML 687-762).
- * Los que ya estaban suspendidos/lesionados ANTES del partido cumplen una fecha; los que se ganaron
- * la sanción en este partido empiezan a cumplirla en el siguiente.
+ * Juega el paso actual del calendario (liga, copa, internacional, playoffs o Copa de Campeones) y, a continuación,
+ * simula solos los pasos que no son de liga y en los que el usuario no juega (como advanceCalendarIfNoUserAction,
+ * HTML 1098-1156). Devuelve los resultados de liga jugados.
  */
-function applyDisciplineAndInjuries(
-  state: GameState,
-  team: Team,
-  side: 'home' | 'away',
-  events: MatchEvent[],
-  isUser: boolean,
-): void {
-  const byId = new Map(team.squad.map((p) => [p.id, p]));
-  const serving = team.squad.filter((p) => p.suspension > 0);
-  const recovering = team.squad.filter((p) => p.injury);
-
-  for (const e of events) {
-    if (e.side !== side || !e.playerId) continue;
-    const p = byId.get(e.playerId);
-    if (!p) continue;
-    if (e.type === 'foul' && e.card === 'red') {
-      // HTML 733: Math.max(suspended, 1)
-      p.stats.redCards++;
-      p.suspension = Math.max(p.suspension, DISCIPLINE.redSuspension);
-      if (isUser) pushNews(state, `🟥 ${p.name} fue expulsado: se pierde el próximo partido.`);
-    } else if (e.type === 'foul' && e.card === 'yellow') {
-      p.stats.yellowCards++;
-      p.yellowAccum++;
-      if (p.yellowAccum >= DISCIPLINE.yellowLimit) {
-        // HTML 740: a las 4 amarillas, un partido de suspensión y se reinicia el conteo.
-        p.suspension += 1;
-        p.yellowAccum = 0;
-        if (isUser) pushNews(state, `⛔ ${p.name} llegó a ${DISCIPLINE.yellowLimit} amarillas: se pierde el próximo partido.`);
-      }
-    } else if (e.type === 'injury' && e.injury && !p.injury) {
-      p.injury = { ...e.injury };
-      if (isUser) {
-        const n = e.injury.matchesLeft;
-        pushNews(state, `🚑 ${p.name} se lesionó (${e.injury.type}): vuelve en ${n} fecha${n === 1 ? '' : 's'}.`);
-      }
-    }
-  }
-
-  for (const p of serving) {
-    p.suspension = Math.max(0, p.suspension - 1);
-    if (p.suspension === 0 && isUser) pushNews(state, `✅ ${p.name} cumplió la sanción y vuelve a estar disponible.`);
-  }
-  for (const p of recovering) {
-    if (!p.injury) continue;
-    p.injury.matchesLeft--;
-    if (p.injury.matchesLeft <= 0) {
-      p.injury = null;
-      p.fatigue = 0; // HTML 757
-      if (isUser) pushNews(state, `✅ ${p.name} se recuperó y ya está disponible.`);
-    }
-  }
-}
-
-/** Forma tras el partido: titulares +1 si ganó, -1 si perdió, +1 extra si hizo gol; suplentes tienden a 0. */
-function updateForm(team: Team, outcome: 'win' | 'draw' | 'loss', scorers: Set<string>): void {
-  const starters = new Set(team.lineup.filter((id): id is string => !!id));
-  for (const p of team.squad) {
-    if (starters.has(p.id)) {
-      const d = (outcome === 'win' ? 1 : outcome === 'loss' ? -1 : 0) + (scorers.has(p.id) ? 1 : 0);
-      p.form = clamp(p.form + d, FORM.min, FORM.max);
-    } else if (p.form !== 0) {
-      p.form += p.form > 0 ? -1 : 1;
-    }
-  }
-}
-
-function recordPlayerStats(team: Team, result: MatchResult, events: MatchEvent[]): void {
-  const byId = new Map(team.squad.map((p) => [p.id, p]));
-  for (const id of team.lineup) {
-    const p = id ? byId.get(id) : undefined;
-    if (p) p.stats.gamesPlayed++;
-  }
-  for (const s of result.scorers) {
-    if (s.teamId === team.id && s.playerId) {
-      const p = byId.get(s.playerId);
-      if (p) p.stats.goals++;
-    }
-  }
-  const side = team.id === result.homeId ? 'home' : 'away';
-  for (const e of events) {
-    if (e.type === 'goal' && e.side === side && e.assistId) {
-      const p = byId.get(e.assistId);
-      if (p) p.stats.assists++;
-    }
-  }
-}
-
-function userOutcomeText(state: GameState, home: Team, away: Team, r: MatchResult, matchday: number): string {
-  const isHome = home.id === state.userTeamId;
-  const mine = isHome ? r.hg : r.ag, theirs = isHome ? r.ag : r.hg;
-  const rival = isHome ? away.name : home.name;
-  const verb = mine > theirs ? 'Ganaste' : mine < theirs ? 'Perdiste' : 'Empataste';
-  const prep = mine === theirs ? 'con' : 'ante';
-  return `Fecha ${matchday + 1}: ${verb} ${mine}-${theirs} ${prep} ${rival}.`;
-}
-
-/** Juega la fecha actual de las 3 divisiones. */
-export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchResult[] {
-  state.preseasonWeeksLeft = 0; // jugar una fecha implica que la pretemporada terminó
+export function playNextStep(state: GameState, userSim?: SimulatedMatch): MatchResult[] {
+  ensureCompetitions(state);
   const rng = createRng(state.rngState);
-  const all: MatchResult[] = [];
-
-  for (const d of DIVISIONS) {
-    const div = state.divisions[d];
-    const round = div.schedule[div.matchday];
-    if (!round) continue;
-    const byId = new Map(div.teams.map((t) => [t.id, t]));
-    const played: MatchResult[] = [];
-
-    for (const [hid, aid] of round) {
-      const home = byId.get(hid)!, away = byId.get(aid)!;
-      const isUser = state.userTeamId !== null && (hid === state.userTeamId || aid === state.userTeamId);
-      // La computadora arma su alineación con los disponibles antes de cada partido.
-      for (const t of [home, away]) if (t.id !== state.userTeamId) t.lineup = bestAvailableFive(t);
-      const sim =
-        isUser && userSim && userSim.result.homeId === hid && userSim.result.awayId === aid
-          ? userSim
-          : simulateMatch(home, away, rng, { medicalLevel: medicalLevels(home, away) });
-      const r = sim.result;
-
-      applyResult(home, away, r);
-      recordPlayerStats(home, r, sim.events);
-      recordPlayerStats(away, r, sim.events);
-      updateMorale(home, r.hg > r.ag ? 'win' : r.hg < r.ag ? 'loss' : 'draw', rng);
-      updateMorale(away, r.ag > r.hg ? 'win' : r.ag < r.hg ? 'loss' : 'draw', rng);
-      const scorerIds = (teamId: string) =>
-        new Set(r.scorers.filter((x) => x.teamId === teamId && x.playerId).map((x) => x.playerId as string));
-      updateForm(home, r.hg > r.ag ? 'win' : r.hg < r.ag ? 'loss' : 'draw', scorerIds(home.id));
-      updateForm(away, r.ag > r.hg ? 'win' : r.ag < r.hg ? 'loss' : 'draw', scorerIds(away.id));
-      applyDisciplineAndInjuries(state, home, 'home', sim.events, home.id === state.userTeamId);
-      applyDisciplineAndInjuries(state, away, 'away', sim.events, away.id === state.userTeamId);
-      updateFatigue(home);
-      updateFatigue(away);
-      // Plata de la fecha (HTML 563-592, ahora para todos): la asistencia sale del estadio del local.
-      // Clásico del usuario (HTML 1176): se evalúa con el historial previo a este partido.
-      const attendance = computeAttendance(home, d, rng, isRivalMatch(state, hid, aid));
-      for (const t of [home, away]) {
-        const mine = t.id === state.userTeamId;
-        processClubFinances(
-          t,
-          { season: state.season, matchday: div.matchday, isHome: t === home, attendance },
-          mine,
-          mine ? (text) => pushNews(state, text) : undefined,
-        );
-      }
-      recordH2H(state, hid, aid, r.hg, r.ag);
-      played.push(r);
-
-      if (isUser) pushNews(state, userOutcomeText(state, home, away, r, div.matchday));
-    }
-    div.results.push(played);
-    div.matchday++;
-    all.push(...played);
+  const results: MatchResult[] = [];
+  let step = currentStep(state);
+  if (!step) return results;
+  results.push(...runStep(state, step, rng, userSim));
+  state.calendarIndex++;
+  for (step = currentStep(state); step && step.kind !== 'league' && !userStepFixture(state, step); step = currentStep(state)) {
+    runStep(state, step, rng);
+    state.calendarIndex++;
   }
-
   state.rngState = rng.state();
-  tickMarket(state); // ventanas de pases: mercado de la computadora, ofertas y listas (HTML 839-846)
-  return all;
+  tickMarket(state); // ventanas de pases: mercado de la computadora, ofertas y listas (HTML 839-846); el día es la fecha de liga
+  return results;
 }
 
+/** Avanza hasta haber jugado una fecha de liga (con los pasos de copa que la preceden, si los hay). */
+export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchResult[] {
+  const out: MatchResult[] = [];
+  for (let guard = 0; guard < 100 && !isSeasonOver(state); guard++) {
+    const wasLeague = currentStep(state)?.kind === 'league';
+    out.push(...playNextStep(state, userSim));
+    if (wasLeague) break;
+  }
+  return out;
+}
+
+/** La temporada termina cuando se jugó todo el calendario: liga, copas, playoffs y Copa de Campeones. */
 export function isSeasonOver(state: GameState): boolean {
-  return DIVISIONS.every((d) => state.divisions[d].matchday >= state.divisions[d].schedule.length);
+  return state.calendarIndex >= state.calendar.length;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -249,7 +116,7 @@ function progressPlayer(p: Player, rng: Rng): void {
   p.form = 0;
   p.fatigue = 0;
   p.yellowAccum = 0;
-  p.stats = { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0 };
+  p.stats = { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0, cupGoals: 0 };
 }
 
 function freeNumber(squad: Player[], rng: Rng): number {
@@ -304,29 +171,78 @@ function rollTeamOver(state: GameState, team: Team, isUser: boolean, rng: Rng): 
   team.lineup = bestAvailableFive(team);
 }
 
+/**
+ * Cierre de la temporada del usuario (HTML 1943-1956): resultado y objetivo cumplido o no. Queda en `seasonHistory`
+ * (el bloque de la directiva usa `objectiveMet`).
+ */
+function closeSeasonForUser(state: GameState): void {
+  const me = userTeam(state);
+  const div = state.userDivision;
+  if (!me || !div) return;
+  const d = state.divisions[div];
+  const position = standings(d.teams).findIndex((t) => t.id === me.id) + 1;
+  const upper = div === 'B' ? 'A' : 'B';
+  let outcome = `${position}° en la fase regular`;
+  if (div === 'A' && d.playoff?.winner === me.id) outcome = '🏆 Campeón de los playoffs';
+  else if (div !== 'A' && d.promotedDirect === me.id) outcome = `🎉 Campeón — ascenso directo a Primera ${upper}`;
+  else if (div !== 'A' && d.playoff?.winner === me.id) outcome = `🎉 Ascenso vía playoff a Primera ${upper}`;
+  else if (div !== 'C' && d.relegated?.includes(me.id)) outcome = `⬇️ Descenso a Primera ${div === 'A' ? 'B' : 'C'}`;
+  state.seasonHistory.push({
+    season: state.season,
+    division: div,
+    position,
+    outcome,
+    objective: state.objective,
+    objectiveMet: evaluateObjective(state.objective, me.id, d, position),
+  });
+  if (state.seasonHistory.length > COMPETITIONS.historyMax) state.seasonHistory.shift();
+}
+
 export function startNewSeason(state: GameState): void {
+  // Si se pide cerrar antes de tiempo, se simula lo que falte.
+  for (let guard = 0; guard < 200 && !isSeasonOver(state); guard++) playNextStep(state);
+  ensureCompetitions(state);
   const rng = createRng(state.rngState);
-  const order = Object.fromEntries(DIVISIONS.map((d) => [d, standings(state.divisions[d].teams)])) as Record<
-    DivisionId,
-    Team[]
-  >;
-  const n = PROMOTION_SLOTS;
-  const keep = (d: DivisionId, from: number, to: number) => order[d].slice(from, to);
-  const len = (d: DivisionId) => order[d].length;
-
-  const next: Record<DivisionId, Team[]> = {
-    A: [...keep('A', 0, len('A') - n), ...keep('B', 0, n)],
-    B: [...keep('A', len('A') - n, len('A')), ...keep('B', n, len('B') - n), ...keep('C', 0, n)],
-    C: [...keep('B', len('B') - n, len('B')), ...keep('C', n, len('C'))],
-  };
-
   const userId = state.userTeamId;
   const oldDivision = state.userDivision;
+  const D = state.divisions;
+
+  closeSeasonForUser(state);
+  state.lastSeasonAStandings = standings(D.A.teams).map((t) => t.id); // HTML 1963: define los byes de la copa
+
+  // Ascensos y descensos (HTML 1966-1997): A y B bajan 2; el campeón de B y C asciende directo y el ganador de su
+  // playoff, también; en C bajan 3 y los reemplazan equipos nuevos.
+  const relA = D.A.relegated ?? [], relB = D.B.relegated ?? [], relC = D.C.relegated ?? [];
+  const upToA = [D.B.promotedDirect, D.B.playoff?.winner].filter((x): x is string => !!x);
+  const upToB = [D.C.promotedDirect, D.C.playoff?.winner].filter((x): x is string => !!x);
+  const pick = (teams: Team[], ids: string[]) => teams.filter((t) => ids.includes(t.id));
+  const aTeams = D.A.teams, bTeams = D.B.teams, cTeams = D.C.teams;
+  const downFromA = pick(aTeams, relA), downFromB = pick(bTeams, relB);
+  const next: Record<DivisionId, Team[]> = {
+    A: [...aTeams.filter((t) => !relA.includes(t.id)), ...pick(bTeams, upToA)],
+    B: [...bTeams.filter((t) => !relB.includes(t.id) && !upToA.includes(t.id)), ...downFromA, ...pick(cTeams, upToB)],
+    C: [...cTeams.filter((t) => !upToB.includes(t.id)), ...downFromB],
+  };
+  const newTeamIds = new Set<string>();
+  if (relC.length > 0) {
+    const used = new Set(DIVISIONS.flatMap((d) => D[d].teams.map((t) => t.name)));
+    const fresh = relC.map((_, i) => generateTeam(rng, used, 'C', i));
+    for (const t of fresh) newTeamIds.add(t.id);
+    next.C = [...next.C.filter((t) => !relC.includes(t.id)), ...fresh];
+    // Los clubes que salen del juego no pueden seguir teniendo ofertas abiertas por jugadores del usuario.
+    state.market.offers = state.market.offers.filter((o) => !relC.includes(o.teamId));
+  }
+  const names = (teams: Team[]) => teams.map((t) => t.name).join(', ');
+  pushNews(state, `⬆️ Ascienden a Primera A: ${names(pick(bTeams, upToA))}. ⬇️ Descienden a B: ${names(downFromA)}.`);
+  pushNews(state, `⬆️ Ascienden a Primera B: ${names(pick(cTeams, upToB))}. ⬇️ Descienden a C: ${names(downFromB)}.`);
+  if (relC.length > 0) pushNews(state, `⬇️⬆️ En Primera C descendieron ${relC.length} equipos y llegaron ${relC.length} recién ascendidos.`);
+
   for (const d of DIVISIONS) {
-    const div = state.divisions[d];
+    const div = D[d];
     div.teams = next[d];
     for (const t of div.teams) {
-      rollTeamOver(state, t, t.id === userId, rng);
+      // Los equipos recién generados ya nacen con la edad y el contrato de esta temporada.
+      if (!newTeamIds.has(t.id)) rollTeamOver(state, t, t.id === userId, rng);
       // La computadora ajusta la entrada a su nueva división (si no, un equipo que asciende
       // cobraría precio de C contra la base de A). El usuario conserva el precio que eligió.
       if (t.id !== userId) t.finance.ticketPrice = defaultTicketPrice(d);
@@ -334,16 +250,38 @@ export function startNewSeason(state: GameState): void {
     div.schedule = doubleRoundRobin(div.teams.map((t) => t.id));
     div.matchday = 0;
     div.results = [];
+    div.phase = 'regular';
+    div.playoff = null;
+    div.promotedDirect = null;
+    div.relegated = null;
     if (userId && div.teams.some((t) => t.id === userId)) state.userDivision = d;
   }
 
   state.season++;
   state.preseasonWeeksLeft = MARKET.preseasonWeeks; // HTML 2066
+  // Competiciones de la temporada (HTML 2053-2065): la Internacional solo si hubo clasificado; copa nueva; sin Copa de Campeones.
+  buildIntlCup(state, rng);
+  if (state.intlCup) {
+    const q = state.intlCupQualifiedNextSeason as string;
+    pushNews(
+      state,
+      q === userId
+        ? '🌎 Clasificaste a la Copa Internacional: 12 equipos, 3 grupos de 4, se juega durante esta temporada.'
+        : `🌎 ${findTeam(state, q)?.name ?? 'El campeón de A'} juega la Copa Internacional (12 equipos, 3 grupos de 4) esta temporada.`,
+    );
+  }
+  state.intlCupQualifiedNextSeason = null;
+  state.cup = buildCup(state, rng);
+  state.championsCup = null;
+  state.calendar = buildCalendar({ leagueRounds: D.A.schedule.length, cup: true, intl: !!state.intlCup });
+  state.calendarIndex = 0;
+  state.objective = computeSeasonObjective(state);
+
   // Sponsors de la nueva temporada: la computadora elige sola (la que más plata deja); el usuario elige en Club.
   for (const d of DIVISIONS) {
-    for (const t of state.divisions[d].teams) {
+    for (const t of D[d].teams) {
       if (t.id === userId) continue;
-      signSponsor(t, pickBestOffer(generateSponsorOffers(t, rng), state.divisions[d].schedule.length), state.season);
+      signSponsor(t, pickBestOffer(generateSponsorOffers(t, rng), D[d].schedule.length), state.season);
     }
   }
   ensureSponsorOffers(state, rng);
@@ -357,6 +295,7 @@ export function startNewSeason(state: GameState): void {
         : `Descenso. Arrancás la temporada ${state.season} en la División ${state.userDivision}.`,
     );
   }
+  if (state.objective) pushNews(state, `🎯 Objetivo de la temporada: ${state.objective.text}`);
   state.rngState = rng.state();
   tickMarket(state);
 }

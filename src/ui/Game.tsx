@@ -1,6 +1,6 @@
 import { isPreseason } from '../engine/market';
 import { lineupIssues } from '../engine/squad';
-import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
+import { currentStepLabel, isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { useAuth } from '../store/authStore';
 import { useGame, type Tab } from '../store/gameStore';
 import { Badge } from './Badge';
@@ -31,6 +31,7 @@ export function Game() {
   const setTab = useGame((s) => s.setTab);
   const backToMenu = useGame((s) => s.backToMenu);
   const startUserMatch = useGame((s) => s.startUserMatch);
+  const quickPlayStep = useGame((s) => s.quickPlayStep);
   const nextSeason = useGame((s) => s.nextSeason);
   const advancePreseason = useGame((s) => s.advancePreseason);
   const user = useAuth((s) => s.user);
@@ -45,6 +46,7 @@ export function Game() {
   const over = isSeasonOver(game);
   const preseason = isPreseason(game);
   const next = over ? null : userNextFixture(game);
+  const stepLabel = over ? null : currentStepLabel(game);
   const current = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   const onContinue = () => {
@@ -54,7 +56,7 @@ export function Game() {
       // Con la alineación inválida, se lleva al usuario a Inicio, donde se explica y se puede autocompletar.
       if (lineupIssues(team).length > 0) setTab('home');
       else startUserMatch();
-    }
+    } else if (stepLabel) void quickPlayStep(); // paso sin partido propio: se simula
   };
 
   return (
@@ -106,7 +108,7 @@ export function Game() {
           <div className="tb-title">
             <h1>{current.label}</h1>
             <span className="tb-sub">
-              Temp. {game.season} · {preseason ? 'Pretemporada' : `Fecha ${played}/${total}`}
+              Temp. {game.season} · {preseason ? 'Pretemporada' : over ? 'Fin de temporada' : next && next.step.kind !== 'league' ? next.label : `Fecha ${played}/${total}`}
               {busy && <span className="saving"> · Guardando…</span>}
             </span>
           </div>
@@ -114,10 +116,10 @@ export function Game() {
             type="button"
             className="btn continue"
             onClick={onContinue}
-            disabled={busy || (!over && !next)}
-            title={over ? 'Empezar la siguiente temporada' : preseason ? 'Avanzar una semana de pretemporada' : 'Jugar el próximo partido'}
+            disabled={busy || (!over && !next && !stepLabel)}
+            title={over ? 'Empezar la siguiente temporada' : preseason ? 'Avanzar una semana de pretemporada' : next ? `Jugar: ${next.label}` : 'Simular el próximo paso del calendario'}
           >
-            <span>{over ? 'Nueva temporada' : preseason ? 'Avanzar semana' : 'Continuar'}</span>
+            <span>{over ? 'Nueva temporada' : preseason ? 'Avanzar semana' : next || !stepLabel ? 'Continuar' : 'Simular'}</span>
             <IconArrow size={18} />
           </button>
         </header>

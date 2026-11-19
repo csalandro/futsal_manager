@@ -9,9 +9,12 @@ export function allTeams(state: GameState): Team[] {
   return DIVISIONS.flatMap((d) => state.divisions[d].teams);
 }
 
+/** Busca un equipo de las divisiones o, si no está, un invitado de la Copa Internacional (HTML 1285-1288). */
 export function findTeam(state: GameState, id: string): Team | undefined {
-  return allTeams(state).find((t) => t.id === id);
+  return allTeams(state).find((t) => t.id === id) ?? state.intlGuestTeams?.[id];
 }
+
+export const isGuestTeam = (state: GameState, id: string): boolean => !!state.intlGuestTeams?.[id];
 
 export function userTeam(state: GameState): Team | undefined {
   return state.userTeamId ? findTeam(state, state.userTeamId) : undefined;
