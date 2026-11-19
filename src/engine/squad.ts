@@ -2,6 +2,7 @@
 // Las funciones que reciben un Team lo MUTAN (se llaman dentro de immer).
 import type { Player, Team } from '../domain/types';
 import { FATIGUE_BLOCK, SQUAD } from './config';
+import { canSpend, LOCKOUT_REASON } from './finance';
 import { playerValue } from './generate';
 import type { Rng } from './rng';
 import { getFullSlots } from './strength';
@@ -101,6 +102,7 @@ export function severanceCost(p: Player): number {
 export function renewContract(team: Team, playerId: string, rng: Rng): ActionResult {
   const p = team.squad.find((x) => x.id === playerId);
   if (!p) return { ok: false, reason: 'El jugador no está en el plantel.' };
+  if (!canSpend(team)) return { ok: false, reason: LOCKOUT_REASON }; // HTML 357
   if (p.contractYears >= SQUAD.maxContractYears) return { ok: false, reason: 'Ya tiene el contrato máximo.' };
   const cost = renewCost(p);
   if (team.budget < cost) return { ok: false, reason: 'No alcanza el presupuesto.' };

@@ -58,6 +58,58 @@ export interface TeamRecord {
   pts: number;
 }
 
+/** Concepto de un movimiento de plata (HTML 579-580: entradas, sponsor, sueldos, mantenimiento + gastos puntuales). */
+export type FinanceConcept =
+  | 'entradas'
+  | 'sponsor'
+  | 'bono'
+  | 'sueldos'
+  | 'staff'
+  | 'mantenimiento'
+  | 'contratos'
+  | 'estadio'
+  | 'empleados';
+
+export interface FinanceEntry {
+  season: number;
+  /** Índice de fecha (0 = primera) o null si fue un movimiento fuera de fecha. */
+  matchday: number | null;
+  concept: FinanceConcept;
+  /** Con signo: positivo ingresa, negativo sale. */
+  amount: number;
+  label: string;
+}
+
+/** Auspiciante vigente: `perMatch` por fecha; `season` = temporada en que se firmó (0 = el de origen). */
+export interface SponsorDeal {
+  name: string;
+  perMatch: number;
+  season: number;
+}
+
+export interface SponsorOffer {
+  name: string;
+  perMatch: number;
+  /** Bono único al firmar. */
+  bonus: number;
+}
+
+export type StaffKey = 'trainers' | 'medics' | 'doctors' | 'scouts' | 'youthCoaches';
+export type StaffCounts = Record<StaffKey, number>;
+
+export interface TeamFinance {
+  ticketPrice: number;
+  sponsor: SponsorDeal;
+  /** Últimos movimientos, el más nuevo al final. */
+  log: FinanceEntry[];
+  /** Acumulado por concepto de la temporada `season` (se reinicia solo al cambiar de temporada). */
+  totals: { season: number; byConcept: Partial<Record<FinanceConcept, number>> };
+  /** Fechas seguidas con presupuesto negativo (HTML 581-582). */
+  debtStreak: number;
+  /** La directiva restringió los gastos (HTML 583-586). */
+  financialLockout: boolean;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -72,6 +124,8 @@ export interface Team {
   record: TeamRecord;
   /** Pateadores de penales, en orden (máx 5 ids). Vacío = patean los mejores. */
   penaltyTakers: string[];
+  finance: TeamFinance;
+  staff: StaffCounts;
 }
 
 /** Partido programado: ids de local y visitante. */
@@ -107,6 +161,8 @@ export interface GameState {
   userDivision: DivisionId | null;
   divisions: Record<DivisionId, Division>;
   news: string[];
+  /** Ofertas de auspiciantes pendientes para el usuario (HTML 538-552). null = nada para elegir. */
+  sponsorOffers: { season: number; offers: SponsorOffer[] } | null;
 }
 
 export type MatchEventType = 'goal' | 'chance' | 'save' | 'foul' | 'build' | 'injury';

@@ -79,8 +79,8 @@ export interface SimOptions {
   /** Eliminatoria: si hay empate se define por penales. */
   knockout?: boolean;
   /**
-   * Nivel del cuerpo médico de cada equipo: acorta las lesiones un 12% por nivel (HTML 700).
-   * TODO(bloque 2): se completa con el staff del club; hasta entonces es 0 para todos.
+   * Nivel del cuerpo médico de cada equipo (team.staff.doctors): acorta las lesiones un 12% por nivel (HTML 700).
+   * Lo completan playMatchday y la tienda con `medicalLevels(home, away)` (finance.ts).
    */
   medicalLevel?: { home?: number; away?: number };
 }

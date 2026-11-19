@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { Player } from '../domain/types';
 import { FATIGUE_BLOCK, SQUAD } from '../engine/config';
+import { canSpend, LOCKOUT_REASON } from '../engine/finance';
 import { userTeam } from '../engine/season';
 import { fireBlocker, renewCost, severanceCost } from '../engine/squad';
 import { useGame } from '../store/gameStore';
+import { FinanceAlert } from './Club';
 import { money, ratingClass } from './format';
 
 type SortKey = 'number' | 'name' | 'pos' | 'age' | 'rating' | 'potential' | 'form' | 'fatigue' | 'contractYears' | 'gp' | 'goals' | 'assists';
@@ -76,6 +78,7 @@ export function Squad() {
           {avgAge.toFixed(1)} · nivel medio {avgRating.toFixed(0)}
         </span>
       </header>
+      <FinanceAlert team={team} />
       {notice && (
         <p className="alert" role="status">
           {notice}
@@ -193,8 +196,8 @@ export function Squad() {
                       <button
                         type="button"
                         className="btn small"
-                        disabled={p.contractYears >= SQUAD.maxContractYears || team.budget < renewCost(p)}
-                        title={`Renovar por 2-3 años (máx ${SQUAD.maxContractYears})`}
+                        disabled={p.contractYears >= SQUAD.maxContractYears || team.budget < renewCost(p) || !canSpend(team)}
+                        title={canSpend(team) ? `Renovar por 2-3 años (máx ${SQUAD.maxContractYears})` : LOCKOUT_REASON}
                         onClick={() => setNotice(renew(p.id))}
                       >
                         Renovar {money(renewCost(p))}

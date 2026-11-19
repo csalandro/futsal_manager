@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { GameState } from '../domain/types';
+import { createFinance, defaultStaff, sponsorFromRating } from '../engine/finance';
 
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
 
 // Validación superficial: versión y forma general. El detalle lo garantiza TypeScript al escribir.
 const saveEnvelope = z
@@ -41,8 +42,34 @@ export function migrateV1toV2(s: Obj): Obj {
   return { ...s, divisions };
 }
 
+/**
+ * v2 → v3: economía y staff. Completa lo mismo que generate.ts, sin azar: sponsor de origen según el nivel
+ * del plantel, entrada según la división, 1 preparador, sin historial y sin ofertas pendientes.
+ */
+export function migrateV2toV3(s: Obj): Obj {
+  const divisions = { ...(s.divisions as Obj) };
+  for (const id of ['A', 'B', 'C'] as const) {
+    const div = divisions[id] as Obj | undefined;
+    if (!div || !Array.isArray(div.teams)) continue;
+    divisions[id] = {
+      ...div,
+      teams: (div.teams as Obj[]).map((t) => {
+        const squad = (t.squad as { rating?: number }[] | undefined) ?? [];
+        const avg = squad.length ? squad.reduce((a, p) => a + (p.rating ?? 55), 0) / squad.length : 55;
+        return {
+          ...t,
+          finance: t.finance ?? createFinance(id, sponsorFromRating(avg)),
+          staff: t.staff ?? defaultStaff(),
+        };
+      }),
+    };
+  }
+  return { ...s, divisions, sponsorOffers: s.sponsorOffers ?? null };
+}
+
 const MIGRATIONS: Record<number, (s: Obj) => Obj> = {
   1: migrateV1toV2,
+  2: migrateV2toV3,
 };
 
 export function parseSave(raw: unknown): GameState | null {

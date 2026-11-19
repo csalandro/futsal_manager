@@ -3,9 +3,10 @@ import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { useAuth } from '../store/authStore';
 import { useGame, type Tab } from '../store/gameStore';
 import { Badge } from './Badge';
+import { Club } from './Club';
 import { Fixture } from './Fixture';
 import { Home } from './Home';
-import { IconArrow, IconCalendar, IconHome, IconLogout, IconSave, IconSquad, IconTable, IconTactics } from './icons';
+import { IconArrow, IconCalendar, IconClub, IconHome, IconLogout, IconSave, IconSquad, IconTable, IconTactics } from './icons';
 import { Squad } from './Squad';
 import { Table } from './Table';
 import { Tactics } from './Tactics';
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string; short: string; icon: (p: { size?: number }
   { id: 'tactics', label: 'Tácticas', short: 'Tácticas', icon: IconTactics },
   { id: 'table', label: 'Competición', short: 'Tabla', icon: IconTable },
   { id: 'fixture', label: 'Calendario', short: 'Fixture', icon: IconCalendar },
+  { id: 'club', label: 'Club', short: 'Club', icon: IconClub },
 ];
 
 export function Game() {
@@ -125,6 +127,7 @@ export function Game() {
           {tab === 'tactics' && <Tactics />}
           {tab === 'table' && <Table />}
           {tab === 'fixture' && <Fixture />}
+          {tab === 'club' && <Club />}
         </main>
       </div>
 

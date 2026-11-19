@@ -96,3 +96,11 @@ export const IconBall = (p: P) => (
     <path d="M12 3v4M16 10l4.5-1.5M14.5 14.5 17 19M9.5 14.5 7 19M8 10 3.5 8.5" />
   </Svg>
 );
+export const IconClub = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="7" width="18" height="12" rx="2" />
+    <path d="M3 11h18" />
+    <circle cx="16.5" cy="15" r="1.3" />
+    <path d="M7 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
+  </Svg>
+);

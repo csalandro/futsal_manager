@@ -85,3 +85,84 @@ export const RETIREMENT = {
 
 /** Forma: límites. */
 export const FORM = { min: -5, max: 5 } as const;
+
+/** Economía del club. Port de HTML 492-606 y 3988-3994. */
+export const ECONOMY = {
+  /** Precio base de la entrada por división (HTML 519: DIV_BASE_TICKET_PRICE). */
+  baseTicketPrice: { A: 14, B: 9, C: 6 },
+  /** Precio por defecto si no hay división (HTML 533: TICKET_PRICE). */
+  fallbackTicketPrice: 8,
+  /** Límites del precio que puede fijar el usuario (HTML 535). */
+  ticketMin: 1,
+  ticketMax: 60,
+  /** Asistencia (HTML 518-532): tasa base = 0,5 + azar·0,4; moral ±; bono por división; clásico; precio. */
+  attendance: {
+    baseRate: 0.5,
+    randomRate: 0.4,
+    moralePivot: 50,
+    moraleDivisor: 400,
+    divisionBonus: { A: 0.14, B: 0.05, C: 0 },
+    rivalBonus: 0.18,
+    priceSensitivity: 0.35,
+    minRate: 0.08,
+    maxRate: 1,
+  },
+  /** Mantenimiento del estadio por fecha: 8% de la capacidad (HTML 574). */
+  maintenancePerSeat: 0.08,
+  /** Sueldo de jugador por fecha (HTML 492-496): rating²·1,1/100 + prima desde 72. */
+  wageFactor: 1.1,
+  wagePremiumFrom: 72,
+  wagePremiumPerPoint: 14,
+  /** Sueldo de cada empleado del staff por fecha. NO está en el original (ahí se paga solo al contratar). */
+  staffWage: 60,
+  /** Auspiciante de origen (HTML 483: rnd(400,1800)). */
+  startSponsor: { min: 400, max: 1800, name: 'Auspiciante local' },
+  /** Ofertas de auspicio (HTML 542-549). */
+  sponsorOffer: {
+    baseMin: 400,
+    baseMax: 3200,
+    baseRatingFactor: 20,
+    /** [piso, rango] del multiplicador de `perMatch`; y [piso, rango] del bono (0 = sin bono). */
+    tiers: [
+      { perMatch: [0.8, 0.2], bonus: [15, 10] },
+      { perMatch: [1.0, 0.2], bonus: [0, 0] },
+      { perMatch: [0.5, 0.15], bonus: [40, 20] },
+    ],
+    names: [
+      'Supermercados Norte', 'Neumáticos Rivera', 'Constructora del Sur', 'Banco Alfa', 'Cervecería del Puerto',
+      'Automotores Central', 'Textil Andina', 'Distribuidora La Unión', 'Ferretería Belgrano', 'Seguros Patagonia',
+      'Lácteos San Martín', 'Combustibles Costa', 'Inmobiliaria Vista', 'Electrodomésticos Rex', 'Panificados El Trigal',
+    ],
+  },
+  /** Fechas seguidas en rojo para que la directiva restrinja los gastos (HTML 562). */
+  lockoutThreshold: 5,
+  /** Movimientos que se guardan en el historial: el usuario y la computadora. */
+  logSizeUser: 60,
+  logSizeCpu: 15,
+} as const;
+
+/** Ampliaciones de estadio (HTML 593-597): costo = capacidad · mult, redondeado a 10. */
+export const STADIUM_UPGRADES = [
+  { key: 'small', label: 'Ampliación chica', add: 150, mult: 5 },
+  { key: 'medium', label: 'Ampliación mediana', add: 400, mult: 12 },
+  { key: 'large', label: 'Ampliación grande', add: 900, mult: 24 },
+] as const;
+export type StadiumUpgradeKey = (typeof STADIUM_UPGRADES)[number]['key'];
+export const STADIUM_NAME_MAX = 30; // HTML 3957: maxlength="30"
+
+/** Empleados (HTML 3988-3994). Costo de contratar = 5000 + 3500 · cantidad actual (HTML 3998). */
+export const STAFF = {
+  hireBase: 5000,
+  hireStep: 3500,
+  /** Preparadores: el equipo arranca con 1 (HTML 484) y no se puede quedar sin ninguno. */
+  minTrainers: 1,
+  /** Cada fisio acelera 15% la recuperación del cansancio en el banco (HTML 781). */
+  medicRecovery: 0.15,
+  defs: [
+    { key: 'trainers', label: 'Preparador físico', max: 7, note: 'Cada uno entrena a 3 jugadores en simultáneo (el entrenamiento llega en un próximo bloque).' },
+    { key: 'medics', label: 'Fisioterapeuta', max: 3, note: 'Acelera un 15% por fisio la recuperación del cansancio de los que no juegan.' },
+    { key: 'doctors', label: 'Médico', max: 3, note: 'Acorta un 12% por médico el tiempo de recuperación de los lesionados.' },
+    { key: 'scouts', label: 'Ojeador', max: 3, note: 'Mejora la calidad de los juveniles de la cantera (llega en un próximo bloque).' },
+    { key: 'youthCoaches', label: 'Entrenador de juveniles', max: 2, note: 'Acelera el desarrollo de la cantera (llega en un próximo bloque).' },
+  ],
+} as const;

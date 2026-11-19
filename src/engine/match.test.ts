@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Player, Position, Team } from '../domain/types';
+import { createFinance, defaultStaff } from './finance';
 import { expectedGoals, penaltyShootout, simulateMatch, winnerId } from './match';
 import { outcomeProbabilities, samplePoisson } from './poisson';
 import { createRng } from './rng';
@@ -19,6 +20,7 @@ function team(id: string, rating: number): Team {
     id, name: id, color: '#fff', squad, lineup: squad.map((p) => p.id),
     tactic: { formation: '2-2', press: 'media', style: 'equilibrado' }, morale: 50, budget: 0,
     stadium: { name: '', capacity: 0 }, record: { played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }, penaltyTakers: [],
+    finance: createFinance('A', 1000), staff: defaultStaff(),
   };
 }
 

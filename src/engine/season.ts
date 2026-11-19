@@ -2,6 +2,10 @@
 // Las funciones MUTAN el estado recibido (se llaman dentro de immer `produce`).
 import type { DivisionId, GameState, MatchEvent, MatchResult, Player, Team } from '../domain/types';
 import { DISCIPLINE, FORM, RETIREMENT, SQUAD } from './config';
+import {
+  computeAttendance, defaultTicketPrice, ensureSponsorOffers, generateSponsorOffers, medicalLevels, medicRecoveryMult, pickBestOffer,
+  processClubFinances, signSponsor,
+} from './finance';
 import { generatePlayer, playerValue } from './generate';
 import { simulateMatch, type SimulatedMatch } from './match';
 import { createRng, type Rng } from './rng';
@@ -54,11 +58,13 @@ export function pushNews(state: GameState, text: string): void {
 
 function updateFatigue(team: Team): void {
   const mult = PRESS_META[team.tactic.press]?.fatigueMult ?? 1;
+  // HTML 781: cada fisioterapeuta acelera 15% la recuperación de los que no juegan.
+  const medicRecovery = medicRecoveryMult(team);
   const starters = new Set(team.lineup.filter((id): id is string => !!id));
   for (const p of team.squad) {
     p.fatigue = starters.has(p.id)
       ? clamp(Math.round(p.fatigue + 10 * mult), 0, 100)
-      : clamp(p.fatigue - 15, 0, 100);
+      : clamp(Math.round(p.fatigue - 15 * medicRecovery), 0, 100);
   }
 }
 
@@ -183,7 +189,7 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
       const sim =
         isUser && userSim && userSim.result.homeId === hid && userSim.result.awayId === aid
           ? userSim
-          : simulateMatch(home, away, rng);
+          : simulateMatch(home, away, rng, { medicalLevel: medicalLevels(home, away) });
       const r = sim.result;
 
       applyResult(home, away, r);
@@ -199,6 +205,17 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
       applyDisciplineAndInjuries(state, away, 'away', sim.events, away.id === state.userTeamId);
       updateFatigue(home);
       updateFatigue(away);
+      // Plata de la fecha (HTML 563-592, ahora para todos): la asistencia sale del estadio del local.
+      const attendance = computeAttendance(home, d, rng);
+      for (const t of [home, away]) {
+        const mine = t.id === state.userTeamId;
+        processClubFinances(
+          t,
+          { season: state.season, matchday: div.matchday, isHome: t === home, attendance },
+          mine,
+          mine ? (text) => pushNews(state, text) : undefined,
+        );
+      }
       played.push(r);
 
       if (isUser) pushNews(state, userOutcomeText(state, home, away, r, div.matchday));
@@ -318,7 +335,12 @@ export function startNewSeason(state: GameState): void {
   for (const d of DIVISIONS) {
     const div = state.divisions[d];
     div.teams = next[d];
-    for (const t of div.teams) rollTeamOver(state, t, t.id === userId, rng);
+    for (const t of div.teams) {
+      rollTeamOver(state, t, t.id === userId, rng);
+      // La computadora ajusta la entrada a su nueva división (si no, un equipo que asciende
+      // cobraría precio de C contra la base de A). El usuario conserva el precio que eligió.
+      if (t.id !== userId) t.finance.ticketPrice = defaultTicketPrice(d);
+    }
     div.schedule = doubleRoundRobin(div.teams.map((t) => t.id));
     div.matchday = 0;
     div.results = [];
@@ -326,6 +348,15 @@ export function startNewSeason(state: GameState): void {
   }
 
   state.season++;
+  // Sponsors de la nueva temporada: la computadora elige sola (la que más plata deja); el usuario elige en Club.
+  for (const d of DIVISIONS) {
+    for (const t of state.divisions[d].teams) {
+      if (t.id === userId) continue;
+      signSponsor(t, pickBestOffer(generateSponsorOffers(t, rng), state.divisions[d].schedule.length), state.season);
+    }
+  }
+  ensureSponsorOffers(state, rng);
+  if (state.sponsorOffers?.season === state.season) pushNews(state, '🤝 Hay ofertas de auspiciantes para esta temporada: elegí una en Club.');
   if (userId && oldDivision && state.userDivision !== oldDivision) {
     const up = DIVISIONS.indexOf(state.userDivision!) < DIVISIONS.indexOf(oldDivision);
     pushNews(

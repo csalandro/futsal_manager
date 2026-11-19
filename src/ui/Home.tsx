@@ -6,6 +6,7 @@ import { standings } from '../engine/standings';
 import { teamStrength } from '../engine/strength';
 import { useGame } from '../store/gameStore';
 import { Badge } from './Badge';
+import { FinanceAlert } from './Club';
 import { pct } from './format';
 import { IconTable } from './icons';
 
@@ -95,10 +96,22 @@ export function Home() {
   const table = standings(game.divisions[game.userDivision].teams);
   const pos = table.findIndex((t) => t.id === game.userTeamId) + 1;
   const form = recentForm(game, game.userTeamId);
+  const sponsorPending = game.sponsorOffers?.season === game.season;
   const topScorer = [...team.squad].sort((a, b) => b.stats.goals - a.stats.goals)[0];
 
   return (
     <div className="dash">
+      <div className="span-2 stack">
+        <FinanceAlert team={team} />
+        {sponsorPending && (
+          <p className="alert ok" role="status">
+            🤝 Hay ofertas de auspiciantes para esta temporada.{' '}
+            <button type="button" className="link" onClick={() => setTab('club')}>
+              Elegir sponsor
+            </button>
+          </p>
+        )}
+      </div>
       {over ? (
         <section className="panel hero span-2">
           <div className="season-end">

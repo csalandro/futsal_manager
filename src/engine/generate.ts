@@ -2,7 +2,8 @@
 import { CITY_NAMES, CLUB_WORDS, FIRST_NAMES, LAST_NAMES, ORIGINS, TEAM_COLORS, TRAITS } from '../data/names';
 import type { DivisionId, Foot, GameState, Player, Position, Team } from '../domain/types';
 import { CURRENT_SAVE_VERSION } from '../repo/saveSchema';
-import { LEAGUE } from './config';
+import { ECONOMY, LEAGUE } from './config';
+import { createFinance, defaultStaff } from './finance';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
 import { emptyRecord } from './standings';
@@ -108,6 +109,9 @@ export function generateTeam(rng: Rng, usedNames: Set<string>, tier: DivisionId,
     stadium: { name: `Estadio ${name}`, capacity: rng.int(400, 1500) },
     record: emptyRecord(),
     penaltyTakers: [],
+    // HTML 483-485: sponsor de origen rnd(400,1800), 1 preparador, entrada según la división.
+    finance: createFinance(tier, rng.int(ECONOMY.startSponsor.min, ECONOMY.startSponsor.max)),
+    staff: defaultStaff(),
   };
 }
 
@@ -129,5 +133,6 @@ export function createNewGame(seed: number, dtName: string): GameState {
     userDivision: null,
     divisions,
     news: [],
+    sponsorOffers: null,
   };
 }

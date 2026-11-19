@@ -323,7 +323,15 @@ describe('migración de guardado 1 → 2', () => {
     const loaded = parseSave(raw)!;
     expect(loaded).not.toBeNull();
     expect(loaded.version).toBe(CURRENT_SAVE_VERSION);
-    expect(CURRENT_SAVE_VERSION).toBe(2);
+    expect(CURRENT_SAVE_VERSION).toBe(3);
+    // lo de v3 (economía) se completa con defaults; el resto queda idéntico
+    for (const d of ['A', 'B', 'C'] as const) {
+      for (const [i, t] of loaded.divisions[d].teams.entries()) {
+        expect(t.finance.ticketPrice).toBe(s.divisions[d].teams[i].finance.ticketPrice);
+        expect(t.staff).toEqual(s.divisions[d].teams[i].staff);
+        t.finance = s.divisions[d].teams[i].finance;
+      }
+    }
     expect(loaded).toEqual(s);
     // y se puede seguir jugando
     loaded.userDivision = 'A';

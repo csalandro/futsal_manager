@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { GameState, Tactic } from '../domain/types';
+import type { GameState, StaffKey, Tactic } from '../domain/types';
+import type { StadiumUpgradeKey } from '../engine/config';
+import {
+  chooseSponsorOffer, ensureSponsorOffers, fireStaff, hireStaff, medicalLevels, recordMovement, renameStadium,
+  setTicketPrice, upgradeStadium, type FinanceCtx,
+} from '../engine/finance';
 import { createNewGame } from '../engine/generate';
 import { composeMatch, simulateHalf, type HalfResult, type SimulatedMatch } from '../engine/match';
 import { createRng, randomSeed } from '../engine/rng';
@@ -12,7 +17,10 @@ import { repository, type SaveSummary } from '../repo';
 import { onLogout } from './authStore';
 
 export type Screen = 'menu' | 'pickTeam' | 'game' | 'admin';
-export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture';
+export type Tab = 'home' | 'squad' | 'tactics' | 'table' | 'fixture' | 'club';
+
+/** Movimientos del usuario fuera de fecha: se anotan en la temporada en curso, sin número de fecha. */
+const offMatchday = (g: GameState): FinanceCtx => ({ season: g.season, matchday: null });
 
 export interface LiveMatch {
   /** Primer tiempo ya simulado. */
@@ -68,6 +76,14 @@ interface Store {
   setPlayerNumber(playerId: string, n: number): string | null;
   togglePenaltyTaker(playerId: string): void;
   movePenaltyTaker(playerId: string, dir: -1 | 1): void;
+
+  /** Acciones del club: devuelven un mensaje de error (o null si salió bien). */
+  setTicketPrice(price: number): string | null;
+  upgradeStadium(key: StadiumUpgradeKey): string | null;
+  renameStadium(name: string): string | null;
+  hireStaff(key: StaffKey): string | null;
+  fireStaff(key: StaffKey): string | null;
+  chooseSponsor(index: number): string | null;
 }
 
 let saving: Promise<void> | null = null;
@@ -104,6 +120,7 @@ export const useGame = create<Store>()(
         const div = (['A', 'B', 'C'] as const).find((d) => s.game!.divisions[d].teams.some((t) => t.id === teamId));
         s.game.userTeamId = teamId;
         s.game.userDivision = div ?? null;
+        ensureSponsorOffers(s.game);
         s.screen = 'game';
       });
       await get().persist();
@@ -114,6 +131,7 @@ export const useGame = create<Store>()(
       try {
         const game = await repository.load(slot);
         if (!game) throw new Error('No se pudo cargar la partida (vacía o de una versión incompatible)');
+        ensureSponsorOffers(game); // partidas migradas o con la temporada recién empezada
         set({ game, slot, screen: game.userTeamId ? 'game' : 'pickTeam', tab: 'home', live: null });
       } catch (e) {
         set({ error: e instanceof Error ? e.message : String(e) });
@@ -186,7 +204,7 @@ export const useGame = create<Store>()(
         const rival = userIsHome ? fx.away : fx.home;
         rival.lineup = bestAvailableFive(rival);
         const rng = createRng(s.game.rngState);
-        const half1 = simulateHalf(fx.home, fx.away, rng, 1);
+        const half1 = simulateHalf(fx.home, fx.away, rng, 1, { medicalLevel: medicalLevels(fx.home, fx.away) });
         s.game.rngState = rng.state();
         s.live = {
           half1, sim: null, homeId: fx.home.id, awayId: fx.away.id,
@@ -201,7 +219,10 @@ export const useGame = create<Store>()(
         const fx = userNextFixture(s.game);
         if (!fx || fx.home.id !== s.live.homeId || fx.away.id !== s.live.awayId) return;
         const rng = createRng(s.game.rngState);
-        const second = simulateHalf(fx.home, fx.away, rng, 2, { prior: s.live.half1.events });
+        const second = simulateHalf(fx.home, fx.away, rng, 2, {
+          prior: s.live.half1.events,
+          medicalLevel: medicalLevels(fx.home, fx.away),
+        });
         s.live.sim = composeMatch(fx.home, fx.away, s.live.half1, second, rng);
         s.game.rngState = rng.state();
       });
@@ -271,6 +292,7 @@ export const useGame = create<Store>()(
         else {
           const name = team.squad.find((p) => p.id === playerId)?.name ?? 'El jugador';
           pushNews(s.game, `✍️ Renovaste a ${name} por ${res.added} temporada${res.added === 1 ? '' : 's'} más.`);
+          recordMovement(team, offMatchday(s.game), 'contratos', -res.cost, `Renovación de ${name}`);
         }
       });
       if (!error) void get().persist();
@@ -285,7 +307,10 @@ export const useGame = create<Store>()(
         const name = team.squad.find((p) => p.id === playerId)?.name ?? 'el jugador';
         const res = firePlayer(team, playerId);
         if (!res.ok) error = res.reason;
-        else pushNews(s.game, `📄 Despediste a ${name}: indemnización de ${res.cost.toLocaleString('es-AR')}.`);
+        else {
+          pushNews(s.game, `📄 Despediste a ${name}: indemnización de ${res.cost.toLocaleString('es-AR')}.`);
+          recordMovement(team, offMatchday(s.game), 'contratos', -res.cost, `Indemnización a ${name}`);
+        }
       });
       if (!error) void get().persist();
       return error;
@@ -317,6 +342,79 @@ export const useGame = create<Store>()(
         if (team) movePenaltyTaker(team, playerId, dir);
       });
       void get().persist();
+    },
+
+    setTicketPrice(price) {
+      set((s) => {
+        const team = s.game && userTeam(s.game);
+        if (team) setTicketPrice(team, price);
+      });
+      void get().persist();
+      return null;
+    },
+
+    upgradeStadium(key) {
+      let error: string | null = null;
+      set((s) => {
+        const team = s.game && userTeam(s.game);
+        if (!s.game || !team) return;
+        const res = upgradeStadium(team, key, offMatchday(s.game));
+        if (!res.ok) error = res.reason;
+        else pushNews(s.game, `🏟️ Ampliaste el estadio: ahora entran ${team.stadium.capacity.toLocaleString('es-AR')} personas.`);
+      });
+      if (!error) void get().persist();
+      return error;
+    },
+
+    renameStadium(name) {
+      let error: string | null = null;
+      set((s) => {
+        const team = s.game && userTeam(s.game);
+        if (!team) return;
+        const res = renameStadium(team, name);
+        if (!res.ok) error = res.reason;
+      });
+      if (!error) void get().persist();
+      return error;
+    },
+
+    hireStaff(key) {
+      let error: string | null = null;
+      set((s) => {
+        const team = s.game && userTeam(s.game);
+        if (!s.game || !team) return;
+        const res = hireStaff(team, key, offMatchday(s.game));
+        if (!res.ok) error = res.reason;
+      });
+      if (!error) void get().persist();
+      return error;
+    },
+
+    fireStaff(key) {
+      let error: string | null = null;
+      set((s) => {
+        const team = s.game && userTeam(s.game);
+        if (!team) return;
+        const res = fireStaff(team, key);
+        if (!res.ok) error = res.reason;
+      });
+      if (!error) void get().persist();
+      return error;
+    },
+
+    chooseSponsor(index) {
+      let error: string | null = null;
+      set((s) => {
+        if (!s.game) return;
+        const res = chooseSponsorOffer(s.game, index);
+        if (!res.ok) error = res.reason;
+        else {
+          const me = userTeam(s.game)!;
+          pushNews(s.game, `🤝 Nuevo auspiciante: ${me.finance.sponsor.name}, $ ${me.finance.sponsor.perMatch.toLocaleString('es-AR')} por fecha.`);
+        }
+      });
+      if (!error) void get().persist();
+      return error;
     },
   })),
 );
