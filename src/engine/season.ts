@@ -1,17 +1,18 @@
 // Avance de temporada: jugar fechas, actualizar estado de jugadores, ascensos/descensos y progresión.
 // Las funciones MUTAN el estado recibido (se llaman dentro de immer `produce`).
 import type { DivisionId, GameState, MatchEvent, MatchResult, Player, Team } from '../domain/types';
-import { bestStartingFive, generatePlayer, playerValue } from './generate';
+import { DISCIPLINE, FORM, RETIREMENT, SQUAD } from './config';
+import { generatePlayer, playerValue } from './generate';
 import { simulateMatch, type SimulatedMatch } from './match';
 import { createRng, type Rng } from './rng';
 import { doubleRoundRobin } from './schedule';
+import { bestAvailableFive, canAddPlayer } from './squad';
 import { applyResult, emptyRecord, standings } from './standings';
 import { PRESS_META } from './strength';
 
 const DIVISIONS: DivisionId[] = ['A', 'B', 'C'];
 const PROMOTION_SLOTS = 2;
 const MAX_NEWS = 30;
-const MIN_SQUAD = 10;
 
 export function allTeams(state: GameState): Team[] {
   return DIVISIONS.flatMap((d) => state.divisions[d].teams);
@@ -45,6 +46,12 @@ export function updateMorale(team: Team, outcome: 'win' | 'draw' | 'loss', rng: 
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
+/** Agrega una noticia al principio de la bandeja (máx MAX_NEWS). */
+export function pushNews(state: GameState, text: string): void {
+  state.news.unshift(text);
+  if (state.news.length > MAX_NEWS) state.news.length = MAX_NEWS;
+}
+
 function updateFatigue(team: Team): void {
   const mult = PRESS_META[team.tactic.press]?.fatigueMult ?? 1;
   const starters = new Set(team.lineup.filter((id): id is string => !!id));
@@ -52,6 +59,77 @@ function updateFatigue(team: Team): void {
     p.fatigue = starters.has(p.id)
       ? clamp(Math.round(p.fatigue + 10 * mult), 0, 100)
       : clamp(p.fatigue - 15, 0, 100);
+  }
+}
+
+/**
+ * Tarjetas, lesiones y cumplimiento de sanciones de UN equipo tras un partido (HTML 687-762).
+ * Los que ya estaban suspendidos/lesionados ANTES del partido cumplen una fecha; los que se ganaron
+ * la sanción en este partido empiezan a cumplirla en el siguiente.
+ */
+function applyDisciplineAndInjuries(
+  state: GameState,
+  team: Team,
+  side: 'home' | 'away',
+  events: MatchEvent[],
+  isUser: boolean,
+): void {
+  const byId = new Map(team.squad.map((p) => [p.id, p]));
+  const serving = team.squad.filter((p) => p.suspension > 0);
+  const recovering = team.squad.filter((p) => p.injury);
+
+  for (const e of events) {
+    if (e.side !== side || !e.playerId) continue;
+    const p = byId.get(e.playerId);
+    if (!p) continue;
+    if (e.type === 'foul' && e.card === 'red') {
+      // HTML 733: Math.max(suspended, 1)
+      p.stats.redCards++;
+      p.suspension = Math.max(p.suspension, DISCIPLINE.redSuspension);
+      if (isUser) pushNews(state, `🟥 ${p.name} fue expulsado: se pierde el próximo partido.`);
+    } else if (e.type === 'foul' && e.card === 'yellow') {
+      p.stats.yellowCards++;
+      p.yellowAccum++;
+      if (p.yellowAccum >= DISCIPLINE.yellowLimit) {
+        // HTML 740: a las 4 amarillas, un partido de suspensión y se reinicia el conteo.
+        p.suspension += 1;
+        p.yellowAccum = 0;
+        if (isUser) pushNews(state, `⛔ ${p.name} llegó a ${DISCIPLINE.yellowLimit} amarillas: se pierde el próximo partido.`);
+      }
+    } else if (e.type === 'injury' && e.injury && !p.injury) {
+      p.injury = { ...e.injury };
+      if (isUser) {
+        const n = e.injury.matchesLeft;
+        pushNews(state, `🚑 ${p.name} se lesionó (${e.injury.type}): vuelve en ${n} fecha${n === 1 ? '' : 's'}.`);
+      }
+    }
+  }
+
+  for (const p of serving) {
+    p.suspension = Math.max(0, p.suspension - 1);
+    if (p.suspension === 0 && isUser) pushNews(state, `✅ ${p.name} cumplió la sanción y vuelve a estar disponible.`);
+  }
+  for (const p of recovering) {
+    if (!p.injury) continue;
+    p.injury.matchesLeft--;
+    if (p.injury.matchesLeft <= 0) {
+      p.injury = null;
+      p.fatigue = 0; // HTML 757
+      if (isUser) pushNews(state, `✅ ${p.name} se recuperó y ya está disponible.`);
+    }
+  }
+}
+
+/** Forma tras el partido: titulares +1 si ganó, -1 si perdió, +1 extra si hizo gol; suplentes tienden a 0. */
+function updateForm(team: Team, outcome: 'win' | 'draw' | 'loss', scorers: Set<string>): void {
+  const starters = new Set(team.lineup.filter((id): id is string => !!id));
+  for (const p of team.squad) {
+    if (starters.has(p.id)) {
+      const d = (outcome === 'win' ? 1 : outcome === 'loss' ? -1 : 0) + (scorers.has(p.id) ? 1 : 0);
+      p.form = clamp(p.form + d, FORM.min, FORM.max);
+    } else if (p.form !== 0) {
+      p.form += p.form > 0 ? -1 : 1;
+    }
   }
 }
 
@@ -100,6 +178,8 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
     for (const [hid, aid] of round) {
       const home = byId.get(hid)!, away = byId.get(aid)!;
       const isUser = state.userTeamId !== null && (hid === state.userTeamId || aid === state.userTeamId);
+      // La computadora arma su alineación con los disponibles antes de cada partido.
+      for (const t of [home, away]) if (t.id !== state.userTeamId) t.lineup = bestAvailableFive(t);
       const sim =
         isUser && userSim && userSim.result.homeId === hid && userSim.result.awayId === aid
           ? userSim
@@ -111,14 +191,17 @@ export function playMatchday(state: GameState, userSim?: SimulatedMatch): MatchR
       recordPlayerStats(away, r, sim.events);
       updateMorale(home, r.hg > r.ag ? 'win' : r.hg < r.ag ? 'loss' : 'draw', rng);
       updateMorale(away, r.ag > r.hg ? 'win' : r.ag < r.hg ? 'loss' : 'draw', rng);
+      const scorerIds = (teamId: string) =>
+        new Set(r.scorers.filter((x) => x.teamId === teamId && x.playerId).map((x) => x.playerId as string));
+      updateForm(home, r.hg > r.ag ? 'win' : r.hg < r.ag ? 'loss' : 'draw', scorerIds(home.id));
+      updateForm(away, r.ag > r.hg ? 'win' : r.ag < r.hg ? 'loss' : 'draw', scorerIds(away.id));
+      applyDisciplineAndInjuries(state, home, 'home', sim.events, home.id === state.userTeamId);
+      applyDisciplineAndInjuries(state, away, 'away', sim.events, away.id === state.userTeamId);
       updateFatigue(home);
       updateFatigue(away);
       played.push(r);
 
-      if (isUser) {
-        state.news.unshift(userOutcomeText(state, home, away, r, div.matchday));
-        if (state.news.length > MAX_NEWS) state.news.length = MAX_NEWS;
-      }
+      if (isUser) pushNews(state, userOutcomeText(state, home, away, r, div.matchday));
     }
     div.results.push(played);
     div.matchday++;
@@ -137,9 +220,14 @@ export function isSeasonOver(state: GameState): boolean {
 // Nueva temporada
 // ---------------------------------------------------------------------------------------------
 
-/** Probabilidad de retiro: 30% a los 38 y +20 puntos por año. */
-function retireChance(age: number): number {
-  return age < 38 ? 0 : Math.min(1, 0.3 + 0.2 * (age - 38));
+/**
+ * Retiro (HTML 2027-2031): forzado a los 40; desde los 32, probabilidad (edad - 31) * 10%.
+ * Se evalúa con la edad ya cumplida en la nueva temporada.
+ */
+function retires(age: number, rng: Rng): boolean {
+  if (age >= RETIREMENT.forcedAge) return true;
+  if (age < RETIREMENT.fromAge) return false;
+  return rng.chance(Math.min(1, (age - (RETIREMENT.fromAge - 1)) * RETIREMENT.perYear));
 }
 
 function progressPlayer(p: Player, rng: Rng): void {
@@ -153,6 +241,7 @@ function progressPlayer(p: Player, rng: Rng): void {
   p.value = playerValue(p.rating);
   p.form = 0;
   p.fatigue = 0;
+  p.yellowAccum = 0;
   p.stats = { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0 };
 }
 
@@ -170,27 +259,42 @@ function youngster(team: Team, pos: Player['pos'], rng: Rng): Player {
   return j;
 }
 
-function rollTeamOver(team: Team, isUser: boolean, rng: Rng): void {
+function rollTeamOver(state: GameState, team: Team, isUser: boolean, rng: Rng): void {
   const retiredPos: Player['pos'][] = [];
-  team.squad = team.squad.filter((p) => {
-    if (rng.chance(retireChance(p.age))) {
-      retiredPos.push(p.pos);
-      return false;
-    }
-    return true;
-  });
   for (const p of team.squad) {
     progressPlayer(p, rng);
     p.contractYears = Math.max(0, p.contractYears - 1);
-    // La computadora renueva sola; el usuario gestiona sus contratos.
-    if (!isUser && p.contractYears === 0) p.contractYears = rng.int(2, 4);
   }
-  for (const pos of retiredPos) team.squad.push(youngster(team, pos, rng));
-  while (team.squad.length < MIN_SQUAD) {
+  team.squad = team.squad.filter((p) => {
+    if (retires(p.age, rng)) {
+      retiredPos.push(p.pos);
+      if (isUser) pushNews(state, `👋 ${p.name} se retiró del fútbol.`);
+      return false;
+    }
+    if (p.contractYears === 0) {
+      // La computadora renueva sola; al usuario se le van libres los que no renovó.
+      if (!isUser) {
+        p.contractYears = rng.int(2, 4);
+      } else {
+        pushNews(state, `📄 ${p.name} se fue libre al vencer su contrato.`);
+        return false;
+      }
+    }
+    return true;
+  });
+  const before = team.squad.length;
+  for (const pos of retiredPos) if (canAddPlayer(team)) team.squad.push(youngster(team, pos, rng));
+  if (!team.squad.some((p) => p.pos === 'POR')) team.squad.push(youngster(team, 'POR', rng));
+  while (team.squad.length < SQUAD.minSeason) {
     team.squad.push(youngster(team, rng.pick(['CIE', 'ALA', 'PIV'] as const), rng));
   }
+  if (isUser && team.squad.length > before) {
+    pushNews(state, `Las juveniles aportaron ${team.squad.length - before} jugador(es) al plantel.`);
+  }
+  const ids = new Set(team.squad.map((p) => p.id));
+  team.penaltyTakers = team.penaltyTakers.filter((id) => ids.has(id));
   team.record = emptyRecord();
-  team.lineup = bestStartingFive(team.squad);
+  team.lineup = bestAvailableFive(team);
 }
 
 export function startNewSeason(state: GameState): void {
@@ -214,7 +318,7 @@ export function startNewSeason(state: GameState): void {
   for (const d of DIVISIONS) {
     const div = state.divisions[d];
     div.teams = next[d];
-    for (const t of div.teams) rollTeamOver(t, t.id === userId, rng);
+    for (const t of div.teams) rollTeamOver(state, t, t.id === userId, rng);
     div.schedule = doubleRoundRobin(div.teams.map((t) => t.id));
     div.matchday = 0;
     div.results = [];
@@ -224,12 +328,12 @@ export function startNewSeason(state: GameState): void {
   state.season++;
   if (userId && oldDivision && state.userDivision !== oldDivision) {
     const up = DIVISIONS.indexOf(state.userDivision!) < DIVISIONS.indexOf(oldDivision);
-    state.news.unshift(
+    pushNews(
+      state,
       up
         ? `¡Ascenso! Arrancás la temporada ${state.season} en la División ${state.userDivision}.`
         : `Descenso. Arrancás la temporada ${state.season} en la División ${state.userDivision}.`,
     );
-    if (state.news.length > MAX_NEWS) state.news.length = MAX_NEWS;
   }
   state.rngState = rng.state();
 }

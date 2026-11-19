@@ -1,3 +1,4 @@
+import { lineupIssues } from '../engine/squad';
 import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { useAuth } from '../store/authStore';
 import { useGame, type Tab } from '../store/gameStore';
@@ -41,7 +42,11 @@ export function Game() {
 
   const onContinue = () => {
     if (over) void nextSeason();
-    else if (next) startUserMatch();
+    else if (next) {
+      // Con la alineación inválida, se lleva al usuario a Inicio, donde se explica y se puede autocompletar.
+      if (lineupIssues(team).length > 0) setTab('home');
+      else startUserMatch();
+    }
   };
 
   return (

@@ -26,6 +26,12 @@ export interface Player {
   peakStart: number | null;
   peakEnd: number;
   stats: PlayerStats;
+  /** Lesión vigente (null = sano); matchesLeft = fechas que le faltan. */
+  injury: { type: string; matchesLeft: number } | null;
+  /** Partidos de sanción que le faltan cumplir. */
+  suspension: number;
+  /** Amarillas acumuladas hacia la próxima suspensión. */
+  yellowAccum: number;
 }
 
 export interface PlayerStats {
@@ -64,6 +70,8 @@ export interface Team {
   budget: number;
   stadium: { name: string; capacity: number };
   record: TeamRecord;
+  /** Pateadores de penales, en orden (máx 5 ids). Vacío = patean los mejores. */
+  penaltyTakers: string[];
 }
 
 /** Partido programado: ids de local y visitante. */
@@ -101,7 +109,7 @@ export interface GameState {
   news: string[];
 }
 
-export type MatchEventType = 'goal' | 'chance' | 'save' | 'foul' | 'build';
+export type MatchEventType = 'goal' | 'chance' | 'save' | 'foul' | 'build' | 'injury';
 
 export interface MatchEvent {
   minute: number;
@@ -111,4 +119,8 @@ export interface MatchEvent {
   scorerId?: string | null;
   assistId?: string | null;
   card?: 'yellow' | 'red' | null;
+  /** Jugador amonestado/expulsado (foul con tarjeta) o lesionado (injury). */
+  playerId?: string | null;
+  /** Solo en 'injury': la lesión que sufrió. */
+  injury?: { type: string; matchesLeft: number };
 }

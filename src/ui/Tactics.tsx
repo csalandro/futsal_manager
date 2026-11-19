@@ -1,5 +1,6 @@
 import type { Formation, Player, Press, Style } from '../domain/types';
 import { userTeam } from '../engine/season';
+import { unavailableReason } from '../engine/squad';
 import { getFullSlots, teamStrength } from '../engine/strength';
 import { useGame } from '../store/gameStore';
 import { ratingClass } from './format';
@@ -49,6 +50,9 @@ export function Tactics() {
   const game = useGame((s) => s.game);
   const setTactic = useGame((s) => s.setTactic);
   const setLineupSlot = useGame((s) => s.setLineupSlot);
+  const autoLineup = useGame((s) => s.autoLineup);
+  const toggleTaker = useGame((s) => s.togglePenaltyTaker);
+  const moveTaker = useGame((s) => s.movePenaltyTaker);
   const team = game ? userTeam(game) : undefined;
   if (!team) return null;
 
@@ -56,6 +60,8 @@ export function Tactics() {
   const coords = COORDS[team.tactic.formation];
   const players = [...team.squad].sort((a, b) => b.rating - a.rating);
   const byId = new Map(team.squad.map((p) => [p.id, p]));
+  const takers = team.penaltyTakers.map((id) => byId.get(id)).filter((p): p is Player => !!p);
+  const takerCandidates = players.filter((p) => p.pos !== 'POR' && !team.penaltyTakers.includes(p.id));
 
   return (
     <div className="tactics">
@@ -114,13 +120,21 @@ export function Tactics() {
                   <span className="lineup-role">{i === 0 ? 'POR' : req ?? `J${i}`}</span>
                   <select aria-label={i === 0 ? 'Arquero' : `Puesto ${i}`} value={id ?? ''} onChange={(e) => setLineupSlot(i, e.target.value || null)}>
                     <option value="">— Vacío —</option>
-                    {players.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.pos} · {p.name} ({p.rating})
-                      </option>
-                    ))}
+                    {players.map((p) => {
+                      const why = unavailableReason(p);
+                      return (
+                        <option key={p.id} value={p.id} disabled={!!why && p.id !== id}>
+                          {p.pos} · {p.name} ({p.rating}){why ? ` — ${why}` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                   {player && <span className={`rating ${ratingClass(player.rating)}`}>{player.rating}</span>}
+                  {player && unavailableReason(player) && (
+                    <p className="lineup-warn" role="status">
+                      No puede jugar: {unavailableReason(player)!.toLowerCase()}.
+                    </p>
+                  )}
                   {out && player && (
                     <p className="lineup-warn" role="status">
                       Fuera de posición: es {player.pos}, el puesto pide {req}.
@@ -130,6 +144,54 @@ export function Tactics() {
               );
             })}
           </ul>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <button type="button" className="btn small" onClick={autoLineup}>
+              Autocompletar alineación
+            </button>
+          </div>
+        </section>
+
+        <section className="panel">
+          <header className="panel-head">
+            <h2>Pateadores de penales</h2>
+            <span className="panel-meta">{takers.length}/5</span>
+          </header>
+          <p className="muted">Elegí el orden de hasta 5. Si no elegís a nadie, patean los de mejor nivel que estén en cancha.</p>
+          <ol className="taker-list" aria-label="Orden de pateadores">
+            {takers.map((p, i) => (
+              <li key={p.id}>
+                <span className="grow">
+                  {i + 1}. {p.name} <small className="muted">({p.rating})</small>
+                </span>
+                <button type="button" className="btn small ghost" aria-label={`Subir a ${p.name}`} disabled={i === 0} onClick={() => moveTaker(p.id, -1)}>
+                  ▲
+                </button>
+                <button type="button" className="btn small ghost" aria-label={`Bajar a ${p.name}`} disabled={i === takers.length - 1} onClick={() => moveTaker(p.id, 1)}>
+                  ▼
+                </button>
+                <button type="button" className="btn small ghost danger-text" onClick={() => toggleTaker(p.id)}>
+                  Quitar
+                </button>
+              </li>
+            ))}
+          </ol>
+          {takers.length < 5 && takerCandidates.length > 0 && (
+            <label className="seg-field" style={{ marginTop: 10 }}>
+              <span className="seg-label">Agregar pateador</span>
+              <select
+                value=""
+                aria-label="Agregar pateador"
+                onChange={(e) => e.target.value && toggleTaker(e.target.value)}
+              >
+                <option value="">— Elegir jugador —</option>
+                {takerCandidates.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.rating})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </section>
       </div>
     </div>

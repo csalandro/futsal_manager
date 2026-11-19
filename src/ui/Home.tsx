@@ -1,5 +1,6 @@
 import type { GameState, Team } from '../domain/types';
 import { matchOdds } from '../engine/match';
+import { lineupIssues } from '../engine/squad';
 import { isSeasonOver, userNextFixture, userTeam } from '../engine/season';
 import { standings } from '../engine/standings';
 import { teamStrength } from '../engine/strength';
@@ -80,10 +81,14 @@ export function Home() {
   const startUserMatch = useGame((s) => s.startUserMatch);
   const quickPlayMatchday = useGame((s) => s.quickPlayMatchday);
   const nextSeason = useGame((s) => s.nextSeason);
+  const autoLineup = useGame((s) => s.autoLineup);
+  const setTab = useGame((s) => s.setTab);
   if (!game || !game.userDivision || !game.userTeamId) return null;
   const team = userTeam(game);
   if (!team) return null;
 
+  const issues = lineupIssues(team);
+  const blocked = issues.length > 0;
   const over = isSeasonOver(game);
   const fx = over ? null : userNextFixture(game);
   const odds = fx ? matchOdds(fx.home, fx.away) : null;
@@ -151,12 +156,30 @@ export function Home() {
             <span>Empate</span>
             <span>Gana visitante</span>
           </div>
+          {blocked && (
+            <div className="lineup-problems" role="alert">
+              <strong>No podés jugar con esta alineación:</strong>
+              <ul>
+                {issues.map((i) => (
+                  <li key={i}>{i}</li>
+                ))}
+              </ul>
+              <div className="actions">
+                <button type="button" className="btn small primary" onClick={autoLineup}>
+                  Autocompletar alineación
+                </button>
+                <button type="button" className="btn small" onClick={() => setTab('tactics')}>
+                  Ir a Tácticas
+                </button>
+              </div>
+            </div>
+          )}
           <div className="actions">
-            <button type="button" className="btn primary" disabled={busy} onClick={startUserMatch}>
+            <button type="button" className="btn primary" disabled={busy || blocked} onClick={startUserMatch}>
               Jugar en vivo
             </button>
-            <button type="button" className="btn" disabled={busy} onClick={() => void quickPlayMatchday()}>
-              Simular resultado
+            <button type="button" className="btn" disabled={busy || blocked} onClick={() => void quickPlayMatchday()}>
+              Simular fecha
             </button>
           </div>
         </section>

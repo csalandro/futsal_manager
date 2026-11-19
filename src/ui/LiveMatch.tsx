@@ -1,17 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MATCH } from '../engine/config';
-import { findTeam } from '../engine/season';
+import { findTeam, userTeam } from '../engine/season';
+import type { Formation, Press, Style } from '../domain/types';
 import { useGame } from '../store/gameStore';
 import { Badge } from './Badge';
 
 const SPEEDS = [1, 2, 4] as const;
-const ICON: Record<string, string> = { goal: '⚽', chance: '◎', save: '🧤', foul: '!', build: '·' };
+const ICON: Record<string, string> = { goal: '⚽', chance: '◎', save: '🧤', foul: '!', build: '·', injury: '🚑' };
+const FORMATIONS: Formation[] = ['2-2', '4-0', '1-2-1', '2-1-1', '1-1-2'];
+const PRESSES: { id: Press; label: string }[] = [
+  { id: 'baja', label: 'Baja' },
+  { id: 'media', label: 'Media' },
+  { id: 'alta', label: 'Alta' },
+];
+const STYLES: { id: Style; label: string }[] = [
+  { id: 'equilibrado', label: 'Equilibrado' },
+  { id: 'posesion', label: 'Posesión' },
+  { id: 'contragolpe', label: 'Contragolpe' },
+];
+const HALF = MATCH.minutes / 2;
 
 export function LiveMatch() {
   const live = useGame((s) => s.live);
   const game = useGame((s) => s.game);
   const busy = useGame((s) => s.busy);
   const finishUserMatch = useGame((s) => s.finishUserMatch);
+  const resumeSecondHalf = useGame((s) => s.resumeSecondHalf);
+  const setTactic = useGame((s) => s.setTactic);
 
   const [minute, setMinute] = useState(0);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
@@ -19,8 +34,12 @@ export function LiveMatch() {
   const feedRef = useRef<HTMLOListElement>(null);
   const continueRef = useRef<HTMLButtonElement>(null);
 
-  const total = MATCH.minutes;
-  const finished = minute >= total;
+  const secondHalf = !!live?.sim;
+  // Primer tiempo: el reloj frena en el entretiempo hasta que el DT juega el segundo.
+  const total = secondHalf ? MATCH.minutes : HALF;
+  const atHalftime = !secondHalf && minute >= HALF;
+  const finished = secondHalf && minute >= MATCH.minutes;
+  const clockStopped = minute >= total;
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -29,12 +48,15 @@ export function LiveMatch() {
   }, []);
 
   useEffect(() => {
-    if (finished) return;
+    if (clockStopped) return;
     const id = window.setInterval(() => setMinute((m) => Math.min(total, m + 1)), 1000 / speed);
     return () => window.clearInterval(id);
-  }, [speed, finished, total]);
+  }, [speed, clockStopped, total]);
 
-  const events = useMemo(() => (live ? [...live.sim.events].sort((a, b) => a.minute - b.minute) : []), [live]);
+  const events = useMemo(
+    () => (live ? [...(live.sim ? live.sim.events : live.half1.events)].sort((a, b) => a.minute - b.minute) : []),
+    [live],
+  );
   const visible = events.filter((e) => e.minute <= minute);
   const count = (side: 'home' | 'away', ...types: string[]) => visible.filter((e) => e.side === side && types.includes(e.type)).length;
   const hg = count('home', 'goal');
@@ -46,12 +68,13 @@ export function LiveMatch() {
   }, [visible.length]);
 
   useEffect(() => {
-    if (finished) continueRef.current?.focus();
-  }, [finished]);
+    if (finished || atHalftime) continueRef.current?.focus();
+  }, [finished, atHalftime]);
 
   if (!live || !game) return null;
-  const home = findTeam(game, live.sim.result.homeId);
-  const away = findTeam(game, live.sim.result.awayId);
+  const home = findTeam(game, live.homeId);
+  const away = findTeam(game, live.awayId);
+  const me = userTeam(game);
   const homeColor = home?.color ?? '#556';
   const awayColor = away?.color ?? '#556';
 
@@ -84,7 +107,7 @@ export function LiveMatch() {
             <span>{ag}</span>
           </div>
           <div className={`sb-clock${finished ? ' ft' : ''}`}>
-            {finished ? 'FINAL' : `${String(minute).padStart(2, '0')}'`}
+            {finished ? 'FINAL' : atHalftime ? 'ENTRETIEMPO' : `${String(minute).padStart(2, '0')}'`}
           </div>
         </div>
         <div className="sb-side away">
@@ -92,7 +115,7 @@ export function LiveMatch() {
           <Badge name={live.awayName} color={awayColor} size="lg" />
         </div>
         <div className="sb-progress" aria-hidden="true">
-          <i style={{ width: `${(minute / total) * 100}%` }} />
+          <i style={{ width: `${(minute / MATCH.minutes) * 100}%` }} />
         </div>
       </header>
 
@@ -140,8 +163,53 @@ export function LiveMatch() {
         </section>
       </div>
 
+      {atHalftime && me && (
+        <section className="panel halftime" aria-labelledby="ht-title">
+          <header className="panel-head">
+            <h2 id="ht-title">Entretiempo: {hg} - {ag}</h2>
+          </header>
+          <p className="muted">¿Cambiás algo para el segundo tiempo?</p>
+          <div className="ht-fields">
+            <label>
+              Formación
+              <select value={me.tactic.formation} onChange={(e) => setTactic({ formation: e.target.value as Formation })}>
+                {FORMATIONS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Presión
+              <select value={me.tactic.press} onChange={(e) => setTactic({ press: e.target.value as Press })}>
+                {PRESSES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Estilo
+              <select value={me.tactic.style} onChange={(e) => setTactic({ style: e.target.value as Style })}>
+                {STYLES.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+      )}
+
       <footer className="match-controls">
-        {finished ? (
+        {atHalftime ? (
+          <button type="button" className="btn continue" ref={continueRef} onClick={resumeSecondHalf}>
+            Jugar segundo tiempo
+          </button>
+        ) : finished ? (
           <button type="button" className="btn continue" ref={continueRef} disabled={busy} onClick={() => void finishUserMatch()}>
             Continuar
           </button>
@@ -155,7 +223,7 @@ export function LiveMatch() {
               ))}
             </div>
             <button type="button" className="btn ghost" onClick={() => setMinute(total)}>
-              Ir al final
+              {secondHalf ? 'Ir al final' : 'Ir al entretiempo'}
             </button>
           </>
         )}

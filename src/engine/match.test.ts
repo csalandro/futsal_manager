@@ -9,6 +9,7 @@ function player(id: string, pos: Position, rating: number): Player {
     id, name: `J${id}`, pos, rating, potential: rating, age: 25, form: 0, fatigue: 0, value: 0,
     contractYears: 2, foot: 'D', number: 1, origin: '', trait: '', injuryProneness: 1,
     peakStart: 27, peakEnd: 30, stats: { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0 },
+    injury: null, suspension: 0, yellowAccum: 0,
   };
 }
 
@@ -17,7 +18,7 @@ function team(id: string, rating: number): Team {
   return {
     id, name: id, color: '#fff', squad, lineup: squad.map((p) => p.id),
     tactic: { formation: '2-2', press: 'media', style: 'equilibrado' }, morale: 50, budget: 0,
-    stadium: { name: '', capacity: 0 }, record: { played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 },
+    stadium: { name: '', capacity: 0 }, record: { played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }, penaltyTakers: [],
   };
 }
 

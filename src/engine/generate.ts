@@ -56,6 +56,9 @@ export function generatePlayer(rng: Rng, pos: Position, baseLevel: number): Play
     peakStart: peakStartFromScore(devScore),
     peakEnd: 30,
     stats: { goals: 0, assists: 0, gamesPlayed: 0, yellowCards: 0, redCards: 0 },
+    injury: null,
+    suspension: 0,
+    yellowAccum: 0,
   };
 }
 
@@ -104,6 +107,7 @@ export function generateTeam(rng: Rng, usedNames: Set<string>, tier: DivisionId,
     budget: rng.int(40, 90) * 1000,
     stadium: { name: `Estadio ${name}`, capacity: rng.int(400, 1500) },
     record: emptyRecord(),
+    penaltyTakers: [],
   };
 }
 
