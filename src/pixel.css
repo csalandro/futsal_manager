@@ -1,0 +1,315 @@
+/* Capa de estilo pixel art: se carga después de index.css y lo sobrescribe. */
+:root {
+  --bg: #12101f;
+  --panel: #1d1a33;
+  --panel2: #282447;
+  --line: #4b4580;
+  --wood: #d9a05b;
+  --amber: #ffd23f;
+  --green: #5ee27a;
+  --red: #ff5a5f;
+  --text: #f4f0ff;
+  --muted: #a49fc9;
+  --font-display: 'Press Start 2P', 'Courier New', monospace;
+  --font-mono: 'Pixelify Sans', ui-monospace, monospace;
+  --font-body: 'Pixelify Sans', system-ui, sans-serif;
+  --px: 4px;
+}
+
+html,
+body {
+  font-size: 16px;
+  line-height: 1.35;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+h1,
+h2,
+h3,
+.brand-name,
+.section-title,
+.hero-label,
+.sb-score,
+.btn,
+.tabs button {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+}
+h1,
+h2,
+h3,
+.section-title {
+  font-size: 13px;
+  line-height: 1.6;
+  text-shadow: 2px 2px 0 #000;
+}
+.brand-name {
+  font-size: 11px;
+}
+.hero-label {
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+img,
+.pixel {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* Sin esquinas redondeadas ni difuminados en ningún lado */
+* {
+  border-radius: 0 !important;
+}
+.topbar {
+  backdrop-filter: none;
+  background: var(--bg);
+  border-bottom: 4px solid #000;
+}
+#app {
+  background:
+    linear-gradient(rgba(18, 16, 31, 0.9), rgba(18, 16, 31, 0.9)),
+    repeating-conic-gradient(#171428 0 25%, #1b1832 0 50%) 0 0 / 16px 16px;
+}
+.court-line {
+  height: 8px;
+  background: repeating-linear-gradient(90deg, var(--wood) 0 16px, #a6702f 16px 24px);
+  border-bottom: 4px solid #000;
+}
+
+/* Paneles con borde escalonado */
+.card,
+.hero,
+.scoreboard,
+.feed,
+.pm-panel {
+  background: var(--panel);
+  border: 4px solid #000;
+  box-shadow:
+    inset 4px 4px 0 var(--line),
+    inset -4px -4px 0 #0e0c1a,
+    6px 6px 0 rgba(0, 0, 0, 0.55);
+}
+
+/* Botones */
+.btn {
+  font-size: 10px;
+  text-transform: uppercase;
+  background: var(--amber);
+  color: #1a1200;
+  border: 4px solid #000;
+  box-shadow:
+    inset 4px 4px 0 #fff3a8,
+    inset -4px -4px 0 #c28f00,
+    4px 4px 0 #000;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: none;
+}
+.btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow:
+    inset 4px 4px 0 #c28f00,
+    inset -4px -4px 0 #fff3a8;
+}
+.btn.secondary,
+.btn.ghost {
+  background: var(--panel2);
+  color: var(--text);
+  box-shadow:
+    inset 4px 4px 0 var(--line),
+    inset -4px -4px 0 #0e0c1a,
+    4px 4px 0 #000;
+}
+.btn.small {
+  font-size: 9px;
+  padding: 6px 10px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tabs button {
+  font-size: 9px;
+  text-transform: uppercase;
+  border-width: 4px;
+}
+
+:focus-visible {
+  outline: 4px dashed var(--amber);
+  outline-offset: 2px;
+}
+
+/* Escudo: forma de escudo escalonada */
+.badge {
+  clip-path: polygon(
+    0 0, 100% 0, 100% 55%, 88% 55%, 88% 70%, 75% 70%, 75% 82%, 62% 82%, 62% 92%, 50% 92%, 50% 100%,
+    50% 100%, 38% 92%, 38% 82%, 25% 82%, 25% 70%, 12% 70%, 12% 55%, 0 55%
+  );
+  border: 0 !important;
+  box-shadow: none !important;
+  font-family: var(--font-display);
+  text-shadow: 2px 2px 0 #000;
+  position: relative;
+  image-rendering: pixelated;
+}
+.badge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.25)) 0 0 / 100% 4px no-repeat,
+    linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)) 0 100% / 100% 4px no-repeat;
+  pointer-events: none;
+}
+
+/* Sprite de jugador en el plantel */
+.sprite {
+  width: 32px;
+  height: 32px;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.pos-chip {
+  border: 2px solid #000;
+  font-family: var(--font-display);
+  font-size: 8px;
+}
+
+/* Trofeo */
+.trophy {
+  width: 64px;
+  height: 64px;
+  display: block;
+  margin: 0 auto 8px;
+  animation: pixel-bob 1s steps(2) infinite;
+}
+
+@keyframes pixel-bob {
+  0% {
+    margin-top: 0;
+  }
+  100% {
+    margin-top: -4px;
+  }
+}
+
+/* ---------- Móvil ---------- */
+/* Press Start 2P es muy ancha: solo en títulos y botones; el resto, fuente de cuerpo. */
+.brand-name,
+nav.tabs button,
+.sb-team span,
+.hero-team span,
+th {
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+.brand-name {
+  font-size: 15px;
+}
+nav.tabs {
+  backdrop-filter: none;
+  background: var(--bg);
+  border-top: 4px solid #000;
+}
+nav.tabs button {
+  font-size: 13px;
+  padding: 14px 0;
+  min-height: 52px;
+  text-transform: none;
+}
+nav.tabs button.active {
+  box-shadow: inset 0 4px 0 var(--amber);
+  background: var(--panel2);
+}
+.page {
+  padding: 16px 12px calc(84px + env(safe-area-inset-bottom));
+}
+.page-title {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.sb-score {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 8vw, 36px);
+}
+.sb-minute {
+  font-size: 15px;
+}
+.scoreboard {
+  margin: 8px 8px 0;
+  padding: 16px 10px 12px;
+}
+.feed {
+  margin: 8px;
+  padding: 6px 10px;
+  box-shadow: inset 4px 4px 0 var(--line), inset -4px -4px 0 #0e0c1a;
+}
+.feed-item {
+  font-size: 15px;
+  animation: none;
+}
+.match-actions {
+  padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+}
+.match-actions .btn,
+.row2 > .btn {
+  min-height: 48px;
+}
+.feed-item.goal {
+  background: rgba(255, 210, 63, 0.12);
+}
+td,
+th {
+  font-size: 14px;
+}
+.table-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 480px) {
+  html,
+  body {
+    font-size: 15px;
+  }
+  h1,
+  h2,
+  h3,
+  .section-title {
+    font-size: 11px;
+  }
+  .card,
+  .hero {
+    box-shadow:
+      inset 3px 3px 0 var(--line),
+      inset -3px -3px 0 #0e0c1a,
+      3px 3px 0 rgba(0, 0, 0, 0.55);
+    border-width: 3px;
+  }
+  .btn {
+    min-height: 46px;
+    box-shadow:
+      inset 3px 3px 0 #fff3a8,
+      inset -3px -3px 0 #c28f00,
+      3px 3px 0 #000;
+  }
+  .btn.secondary,
+  .btn.ghost {
+    box-shadow: inset 3px 3px 0 var(--line), inset -3px -3px 0 #0e0c1a, 3px 3px 0 #000;
+  }
+  .sprite {
+    width: 28px;
+    height: 28px;
+    margin-right: 4px;
+  }
+  .trophy {
+    width: 56px;
+    height: 56px;
+  }
+}
